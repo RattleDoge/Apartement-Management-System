@@ -3,11 +3,12 @@
 use Livewire\Volt\Component;
 use Livewire\Attributes\Layout;
 use Livewire\WithPagination;
+use Livewire\WithFileUploads;
 use App\Models\TenantRequest;
 use App\Models\WorkOrder;
 
 new #[Layout('layouts.karyawan')] class extends Component {
-    use WithPagination;
+    use WithPagination, WithFileUploads;
 
     // Per-column filters
     public string $fNoRequest     = '';
@@ -29,6 +30,59 @@ new #[Layout('layouts.karyawan')] class extends Component {
 
     public bool  $showDetail = false;
     public array $detailData = [];
+
+    // ── Edit Foto ─────────────────────────────────────────────
+    public bool   $showEditFoto        = false;
+    public string $editFotoNoRequest   = '';
+    public int    $editFotoWoId        = 0;
+    public        $editFotoPengecekan  = null;
+    public        $editFotoClose       = null;
+    public array  $editFotoCurrent     = ['pengecekan' => null, 'close' => null];
+
+    public function openEditFoto(): void
+    {
+        $noRequest = $this->detailData['no_request'] ?? '';
+        $wo = WorkOrder::where('no_complain', $noRequest)->first();
+
+        $this->editFotoNoRequest  = $noRequest;
+        $this->editFotoWoId       = $wo?->id ?? 0;
+        $this->editFotoCurrent    = [
+            'pengecekan' => $wo?->foto_pengecekan,
+            'close'      => $wo?->foto_close,
+        ];
+        $this->editFotoPengecekan = null;
+        $this->editFotoClose      = null;
+        $this->showEditFoto       = true;
+    }
+
+    public function saveEditFoto(): void
+    {
+        $this->validate([
+            'editFotoPengecekan' => 'nullable|image|max:8192',
+            'editFotoClose'      => 'nullable|image|max:8192',
+        ]);
+
+        if (! $this->editFotoWoId) return;
+
+        $wo = WorkOrder::find($this->editFotoWoId);
+        if (! $wo) return;
+
+        $update = [];
+        if ($this->editFotoPengecekan) {
+            $update['foto_pengecekan'] = $this->editFotoPengecekan->store('wo-pengecekan', 'public');
+        }
+        if ($this->editFotoClose) {
+            $update['foto_close'] = $this->editFotoClose->store('wo-close', 'public');
+        }
+
+        if ($update) {
+            $wo->update($update);
+            // refresh detailData supaya modal detail ikut update
+            $this->openDetail(TenantRequest::where('no_request', $this->editFotoNoRequest)->value('id') ?? 0);
+        }
+
+        $this->showEditFoto = false;
+    }
 
     public function openDetail(int $id): void
     {
@@ -423,10 +477,83 @@ new #[Layout('layouts.karyawan')] class extends Component {
                 </div>
                 @endif
 
-                <div class="pt-2 border-t border-gray-100 flex justify-end">
+                <div class="pt-2 border-t border-gray-100 flex justify-between items-center">
+                    <button wire:click="openEditFoto"
+                            class="text-xs font-semibold text-white bg-[#1e3a8a] hover:bg-[#1e40af] px-4 py-1.5 rounded-lg">
+                        Edit Foto
+                    </button>
                     <button wire:click="$set('showDetail', false)"
                             class="text-xs text-gray-500 hover:text-gray-700 px-4 py-1.5 border border-gray-200 rounded-lg">
                         Tutup
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    @endif
+
+    {{-- Modal Edit Foto --}}
+    @if($showEditFoto)
+    <div class="fixed inset-0 z-[55] flex items-center justify-center bg-black/60"
+         wire:click="$set('showEditFoto', false)">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-sm mx-4 overflow-y-auto"
+             style="max-height:90vh;" wire:click.stop>
+
+            <div class="bg-[#1e3a8a] text-white px-5 py-3 flex items-center justify-between">
+                <div>
+                    <p class="text-[10px] font-bold tracking-wide uppercase">Edit Foto Staff</p>
+                    <p class="text-[11px] font-mono mt-0.5 opacity-90">{{ $editFotoNoRequest }}</p>
+                </div>
+                <button wire:click="$set('showEditFoto', false)" class="text-white/70 hover:text-white text-xl leading-none">✕</button>
+            </div>
+
+            <div class="px-5 py-4 space-y-4 text-[12px]">
+
+                {{-- Foto Pengecekan --}}
+                <div>
+                    <p class="text-[11px] font-semibold text-gray-600 mb-1">Foto Pengecekan</p>
+                    @if($editFotoCurrent['pengecekan'])
+                    <img src="{{ asset('storage/' . $editFotoCurrent['pengecekan']) }}"
+                         class="mb-2 max-h-28 rounded border border-gray-200 object-contain">
+                    <p class="text-[10px] text-gray-400 mb-1">Upload baru untuk mengganti:</p>
+                    @endif
+                    <input type="file" wire:model="editFotoPengecekan" accept="image/*" class="text-[11px] w-full">
+                    @if($editFotoPengecekan)
+                    <img src="{{ $editFotoPengecekan->temporaryUrl() }}" class="mt-1 max-h-24 rounded border border-blue-200 object-contain">
+                    @endif
+                    @error('editFotoPengecekan') <p class="text-red-500 text-[10px] mt-1">{{ $message }}</p> @enderror
+                </div>
+
+                {{-- Foto Closing --}}
+                <div>
+                    <p class="text-[11px] font-semibold text-gray-600 mb-1">Foto Closing WO</p>
+                    @if($editFotoCurrent['close'])
+                    <img src="{{ asset('storage/' . $editFotoCurrent['close']) }}"
+                         class="mb-2 max-h-28 rounded border border-gray-200 object-contain">
+                    <p class="text-[10px] text-gray-400 mb-1">Upload baru untuk mengganti:</p>
+                    @endif
+                    <input type="file" wire:model="editFotoClose" accept="image/*" class="text-[11px] w-full">
+                    @if($editFotoClose)
+                    <img src="{{ $editFotoClose->temporaryUrl() }}" class="mt-1 max-h-24 rounded border border-blue-200 object-contain">
+                    @endif
+                    @error('editFotoClose') <p class="text-red-500 text-[10px] mt-1">{{ $message }}</p> @enderror
+                </div>
+
+                @if(! $editFotoWoId)
+                <p class="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                    Tidak ada Work Order yang terhubung dengan request ini.
+                </p>
+                @endif
+
+                <div class="pt-2 border-t border-gray-100 flex justify-end gap-2">
+                    <button wire:click="$set('showEditFoto', false)"
+                            class="text-xs text-gray-500 hover:text-gray-700 px-4 py-1.5 border border-gray-200 rounded-lg">
+                        Batal
+                    </button>
+                    <button wire:click="saveEditFoto" wire:loading.attr="disabled"
+                            class="text-xs font-semibold text-white bg-[#1e3a8a] hover:bg-[#1e40af] px-4 py-1.5 rounded-lg disabled:opacity-60">
+                        <span wire:loading.remove wire:target="saveEditFoto">Simpan Foto</span>
+                        <span wire:loading wire:target="saveEditFoto">Menyimpan...</span>
                     </button>
                 </div>
             </div>
