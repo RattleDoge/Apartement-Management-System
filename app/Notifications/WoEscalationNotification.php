@@ -12,6 +12,7 @@ class WoEscalationNotification extends Notification
         public readonly WorkOrder $workOrder,
         public readonly int $level,           // 1 = Supervisor/Chief, 2 = Manager/GM
         public readonly int $elapsedMinutes,
+        public readonly string $context = 'unassigned', // 'unassigned' | 'not_started'
     ) {}
 
     public function via(object $notifiable): array

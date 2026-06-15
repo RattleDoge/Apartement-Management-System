@@ -49,6 +49,24 @@
     /* Grand total */
     .grand-total td { font-weight: bold; font-size: 11px; }
 
+    /* Stempel LUNAS */
+    .stamp-lunas {
+        position: fixed;
+        top: 42%;
+        left: 50%;
+        transform: translate(-50%, -50%) rotate(-28deg);
+        font-size: 68px;
+        font-weight: 900;
+        color: rgba(22, 163, 74, 0.28);
+        border: 7px solid rgba(22, 163, 74, 0.28);
+        padding: 6px 24px;
+        border-radius: 10px;
+        letter-spacing: 10px;
+        pointer-events: none;
+        z-index: 9999;
+        user-select: none;
+    }
+
     /* Footer table */
     .footer-table td { font-size: 10px; padding: 3px 5px; }
     .footer-table td:first-child { font-weight: bold; width: 100px; }
@@ -63,6 +81,10 @@
 </head>
 <body>
 <div class="page">
+
+    @if($wo->fin_status === 'Approved')
+    <div class="stamp-lunas">LUNAS</div>
+    @endif
 
     {{-- Print button (hidden on print) --}}
     <div class="no-print" style="margin-bottom: 10px;">

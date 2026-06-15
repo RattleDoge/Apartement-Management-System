@@ -4,8 +4,10 @@ use Livewire\Volt\Component;
 use Livewire\WithPagination;
 use Livewire\WithFileUploads;
 use Livewire\Attributes\Layout;
+use Illuminate\Support\Facades\Storage;
 use App\Models\TenantRequest;
 use App\Models\WorkOrder;
+use App\Models\HandoverUnit;
 
 new #[Layout('layouts.tenant')] class extends Component {
     use WithPagination, WithFileUploads;
@@ -23,6 +25,12 @@ new #[Layout('layouts.tenant')] class extends Component {
     public        $formFoto         = null;
 
     public string $successMsg = '';
+
+    // Bukti bayar WO
+    public int    $buktiWoId       = 0;
+    public        $buktiWoFile     = null;
+    public string $uploadBuktiMsg  = '';
+    public bool   $uploadBuktiOk   = false;
 
     public function openInput(): void
     {
@@ -127,10 +135,15 @@ new #[Layout('layouts.tenant')] class extends Component {
             }
             $noRequest = sprintf('R%07d/%s/%d-MAP', $nextNum, $roman, $year);
 
+            $lotNo    = $tenantProfile?->unit_number ?? '';
+            $handover = $lotNo ? HandoverUnit::whereRaw('UPPER(lot_no) = ?', [strtoupper($lotNo)])->first() : null;
+            $tglStr   = $handover?->str_date?->format('Y-m-d') ?? now()->toDateString();
+
             TenantRequest::create([
                 'no_request'   => $noRequest,
                 'tanggal'      => now(),
-                'lot_no'       => $tenantProfile?->unit_number ?? '',
+                'tgl_str'      => $tglStr,
+                'lot_no'       => $lotNo,
                 'nama'         => $user->name,
                 'kepemilikan'  => $tenantProfile?->status ?? 'pemilik',
                 'kategori'     => $this->formKategori,
@@ -149,6 +162,36 @@ new #[Layout('layouts.tenant')] class extends Component {
         $this->panelMode = null;
         $this->editId    = null;
         $this->resetPage();
+    }
+
+    public function uploadBuktiWo(int $woId): void
+    {
+        $this->buktiWoId = $woId;
+
+        $this->validate([
+            'buktiWoFile' => 'required|image|mimes:jpg,jpeg,png,webp|max:5120',
+        ], [
+            'buktiWoFile.required' => 'Pilih file bukti pembayaran.',
+            'buktiWoFile.image'    => 'File harus berupa gambar.',
+            'buktiWoFile.max'      => 'Ukuran file maksimal 5 MB.',
+        ]);
+
+        $wo = WorkOrder::findOrFail($woId);
+
+        if ($wo->bukti_bayar_wo && Storage::disk('public')->exists($wo->bukti_bayar_wo)) {
+            Storage::disk('public')->delete($wo->bukti_bayar_wo);
+        }
+
+        $path = $this->buktiWoFile->store('bukti-bayar-wo', 'public');
+        $wo->update([
+            'bukti_bayar_wo'     => $path,
+            'tgl_bukti_bayar_wo' => now(),
+            'fin_status'         => null,
+        ]);
+
+        $this->buktiWoFile    = null;
+        $this->uploadBuktiMsg = 'Bukti pembayaran berhasil diunggah. Menunggu verifikasi dari CS/Finance.';
+        $this->uploadBuktiOk  = true;
     }
 
     public function with(): array
@@ -577,24 +620,116 @@ new #[Layout('layouts.tenant')] class extends Component {
 
         {{-- LIST WO --}}
         @if($listWos->isNotEmpty())
-        <div class="mx-4 mb-6 bg-white rounded-2xl shadow-sm overflow-hidden">
-            <div class="px-5 py-3 border-b border-gray-100">
-                <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">List WO</p>
-            </div>
+        <div class="mx-4 mb-6 space-y-3">
+            <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide px-1">List WO</p>
             @foreach($listWos as $wo)
-            <div class="px-5 py-3 flex items-center gap-3 border-b border-gray-50 last:border-0">
-                <div class="flex-1 min-w-0">
-                    <p class="font-mono text-sm font-semibold text-[#1a6b9a]">{{ $wo->no_wo }}</p>
-                    <p class="text-xs text-gray-500 mt-0.5">{{ $wo->status_comp }}</p>
+            @php
+                $woItems   = $wo->item_service ?? [];
+                $woTotal   = collect($woItems)->sum(fn($i) => ($i['harga'] ?? 0) * ($i['qty'] ?? 1));
+                $hasBilling = count($woItems) > 0 && $woTotal > 0;
+                $finSt     = $wo->fin_status;
+            @endphp
+            <div class="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-100">
+                {{-- WO Header --}}
+                <div class="px-5 py-3 flex items-center gap-3 {{ $hasBilling ? 'border-b border-gray-100' : '' }}">
+                    <div class="flex-1 min-w-0">
+                        <p class="font-mono text-sm font-semibold text-[#1a6b9a]">{{ $wo->no_wo }}</p>
+                        <p class="text-xs text-gray-500 mt-0.5">{{ $wo->status_comp }}</p>
+                    </div>
+                    @if($hasBilling)
+                        @if($finSt === 'Approved')
+                        <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-600 text-white">✔ LUNAS</span>
+                        @elseif($finSt === 'Rejected')
+                        <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-600 text-white">✖ DITOLAK</span>
+                        @elseif($wo->bukti_bayar_wo)
+                        <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-600 text-white">Sedang Diverifikasi</span>
+                        @else
+                        <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500 text-white">Perlu Pembayaran</span>
+                        @endif
+                    @endif
+                    @if($wo->assign_staff)
+                    <div class="text-xs text-gray-600 shrink-0">{{ $wo->assign_staff }}</div>
+                    @endif
                 </div>
-                @if($wo->assign_staff)
-                <div class="text-xs text-gray-600 shrink-0">{{ $wo->assign_staff }},</div>
+
+                {{-- Tagihan --}}
+                @if($hasBilling)
+                <div class="px-5 py-4 {{ $finSt === 'Approved' ? 'bg-green-50' : ($finSt === 'Rejected' ? 'bg-red-50' : 'bg-amber-50') }}">
+                    <p class="text-[11px] font-bold text-gray-700 mb-2">Tagihan Work Order</p>
+                    @if($wo->keterangan_biaya)
+                    <p class="text-[11px] text-gray-500 italic mb-2">{{ $wo->keterangan_biaya }}</p>
+                    @endif
+                    <table class="w-full text-[11px] border-collapse mb-3">
+                        <thead>
+                            <tr class="bg-white/60">
+                                <th class="text-left px-2 py-1 border border-gray-200 font-semibold text-gray-600">Item</th>
+                                <th class="text-center px-2 py-1 border border-gray-200 w-10 font-semibold text-gray-600">Qty</th>
+                                <th class="text-right px-2 py-1 border border-gray-200 w-24 font-semibold text-gray-600">Subtotal</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach($woItems as $item)
+                            <tr class="bg-white/40">
+                                <td class="px-2 py-1 border border-gray-200">{{ $item['nama'] }}</td>
+                                <td class="px-2 py-1 border border-gray-200 text-center">{{ $item['qty'] }}</td>
+                                <td class="px-2 py-1 border border-gray-200 text-right font-semibold">
+                                    Rp {{ number_format(($item['harga'] ?? 0) * ($item['qty'] ?? 1), 0, ',', '.') }}
+                                </td>
+                            </tr>
+                            @endforeach
+                        </tbody>
+                        <tfoot>
+                            <tr class="font-bold bg-white/70">
+                                <td colspan="2" class="px-2 py-1 border border-gray-200 text-right">Total</td>
+                                <td class="px-2 py-1 border border-gray-200 text-right text-blue-700">
+                                    Rp {{ number_format($woTotal, 0, ',', '.') }}
+                                </td>
+                            </tr>
+                        </tfoot>
+                    </table>
+
+                    @if($finSt === 'Rejected')
+                    <div class="bg-red-100 rounded-lg p-2 text-[11px] text-red-700 mb-3">
+                        <strong>Ditolak:</strong> {{ $wo->fin_notes ?? 'Silakan hubungi CS.' }}
+                    </div>
+                    @endif
+
+                    @if($wo->bukti_bayar_wo)
+                    <div class="mb-3">
+                        <p class="text-[10px] text-gray-500 mb-1">Bukti diupload: {{ $wo->tgl_bukti_bayar_wo?->format('d/m/Y H:i') }}</p>
+                        <img src="{{ asset('storage/' . $wo->bukti_bayar_wo) }}"
+                             class="max-h-36 rounded border border-gray-200 object-contain">
+                    </div>
+                    @endif
+
+                    @if($finSt !== 'Approved')
+                    {{-- Upload area --}}
+                    @if($uploadBuktiMsg && $buktiWoId === 0)
+                    <div class="mb-2 text-xs {{ $uploadBuktiOk ? 'text-green-700 bg-green-100' : 'text-red-700 bg-red-100' }} rounded px-3 py-2">
+                        {{ $uploadBuktiMsg }}
+                    </div>
+                    @endif
+                    <div class="border-t border-dashed border-gray-300 pt-3">
+                        <p class="text-[11px] font-semibold text-gray-700 mb-2">
+                            {{ $wo->bukti_bayar_wo ? 'Ganti Bukti Pembayaran' : 'Upload Bukti Pembayaran' }}
+                        </p>
+                        <input type="file" wire:model="buktiWoFile" accept="image/*"
+                               class="text-[11px] text-gray-600 block mb-2">
+                        @if($buktiWoFile)
+                        <img src="{{ $buktiWoFile->temporaryUrl() }}"
+                             class="max-h-32 rounded border border-gray-200 object-contain mb-2">
+                        @endif
+                        @error('buktiWoFile') <p class="text-red-500 text-[10px] mb-1">{{ $message }}</p> @enderror
+                        <button wire:click="uploadBuktiWo({{ $wo->id }})"
+                                wire:loading.attr="disabled"
+                                class="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded disabled:opacity-60">
+                            <span wire:loading.remove wire:target="uploadBuktiWo">Upload Bukti Bayar</span>
+                            <span wire:loading wire:target="uploadBuktiWo">Mengupload...</span>
+                        </button>
+                    </div>
+                    @endif
+                </div>
                 @endif
-                <div class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
-                    <svg class="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/>
-                    </svg>
-                </div>
             </div>
             @endforeach
         </div>

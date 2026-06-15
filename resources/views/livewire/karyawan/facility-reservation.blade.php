@@ -44,6 +44,12 @@ new #[Layout('layouts.karyawan')] class extends Component {
     // SEC close note (shown inline for selected ongoing reservation)
     public string $secCloseCatatan = '';
 
+    // Scan QR modal
+    public bool   $showScanModal = false;
+    public string $scanToken     = '';
+    public ?array $scanData      = null;
+    public string $scanError     = '';
+
     // Feedback
     public string $successMsg = '';
     public string $errorMsg   = '';
@@ -208,7 +214,7 @@ new #[Layout('layouts.karyawan')] class extends Component {
         FacilityReservation::create([
             'nomor'            => $nomor,
             'unit'             => $this->formUnit,
-            'tenant_name'      => $this->formTenantName ?: null,
+            'tenant_name'      => $this->formTenantName ? strtoupper($this->formTenantName) : null,
             'nama_fasilitas'   => $this->formNamaFasilitas,
             'tanggal_reservasi'=> $this->formTanggal,
             'jam_mulai'        => $this->formJamMulai ?: null,
@@ -249,7 +255,7 @@ new #[Layout('layouts.karyawan')] class extends Component {
         $r    = FacilityReservation::findOrFail($this->selectedId);
         $data = [
             'unit'             => $this->formUnit,
-            'tenant_name'      => $this->formTenantName ?: null,
+            'tenant_name'      => $this->formTenantName ? strtoupper($this->formTenantName) : null,
             'nama_fasilitas'   => $this->formNamaFasilitas,
             'tanggal_reservasi'=> $this->formTanggal,
             'jam_mulai'        => $this->formJamMulai ?: null,
@@ -341,6 +347,71 @@ new #[Layout('layouts.karyawan')] class extends Component {
             'sec_close_catatan'=> $this->secCloseCatatan ?: null,
         ]);
         $this->secCloseCatatan = '';
+    }
+
+    // ─── QR Scan (inline modal) ───────────────────────────────────────────────
+
+    public function openScanModal(): void
+    {
+        $this->scanToken = '';
+        $this->scanData  = null;
+        $this->scanError = '';
+        $this->showScanModal = true;
+    }
+
+    public function lookupQr(): void
+    {
+        $this->scanData  = null;
+        $this->scanError = '';
+        $token = trim($this->scanToken);
+        if (!$token) { $this->scanError = 'Token tidak boleh kosong.'; return; }
+
+        $res = FacilityReservation::where('qr_token', $token)->first();
+        if (!$res) { $this->scanError = 'QR tidak valid atau reservasi tidak ditemukan.'; return; }
+
+        $this->scanData = [
+            'id'        => $res->id,
+            'nomor'     => $res->nomor,
+            'fasilitas' => $res->nama_fasilitas,
+            'tanggal'   => $res->tanggal_reservasi?->format('d/m/Y'),
+            'jam'       => substr($res->jam_mulai ?? '', 0, 5) . ' – ' . substr($res->jam_selesai ?? '', 0, 5),
+            'tenant'    => $res->tenant_name,
+            'unit'      => $res->unit,
+            'status'    => $res->status,
+            'token'     => $token,
+        ];
+    }
+
+    public function qrBuka(): void
+    {
+        if (!$this->scanData) return;
+        $res = FacilityReservation::where('qr_token', $this->scanData['token'])->first();
+        if ($res && $res->status === 'Siap Pelaksanaan') {
+            $res->update([
+                'status'      => 'Sedang Berlangsung',
+                'sec_open_by' => auth()->user()?->name ?? 'Security',
+                'sec_open_at' => now(),
+            ]);
+            $this->successMsg = "Fasilitas {$res->nomor} berhasil dibuka. Sedang berlangsung.";
+        }
+        $this->showScanModal = false;
+        $this->resetPage();
+    }
+
+    public function qrTutup(): void
+    {
+        if (!$this->scanData) return;
+        $res = FacilityReservation::where('qr_token', $this->scanData['token'])->first();
+        if ($res && $res->status === 'Sedang Berlangsung') {
+            $res->update([
+                'status'        => 'Selesai',
+                'sec_close_by'  => auth()->user()?->name ?? 'Security',
+                'sec_close_at'  => now(),
+            ]);
+            $this->successMsg = "Fasilitas {$res->nomor} ditutup. Status: Selesai.";
+        }
+        $this->showScanModal = false;
+        $this->resetPage();
     }
 
     public function reject(int $id): void
@@ -715,6 +786,15 @@ new #[Layout('layouts.karyawan')] class extends Component {
                 <button wire:click="openEdit"
                     class="{{ $selectedId ? 'text-blue-600 hover:underline cursor-pointer' : 'text-gray-300 cursor-default' }}">
                     ✏ Edit
+                </button>
+                <button wire:click="openScanModal"
+                    class="flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white font-semibold px-3 py-1 rounded cursor-pointer transition-colors">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+                        <rect x="3" y="14" width="7" height="7" rx="1"/>
+                        <path stroke-linecap="round" d="M14 14h2m0 0h3m-3 0v3m0 0v3m3-6h1"/>
+                    </svg>
+                    Scan QR
                 </button>
             </div>
 
@@ -1172,6 +1252,195 @@ new #[Layout('layouts.karyawan')] class extends Component {
             </div>
         </div>
 
+    @endif
+
+    {{-- ══════════════ MODAL: SCAN QR ══════════════ --}}
+    @if($showScanModal)
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <div style="position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.55);"
+         wire:click.self="$set('showScanModal', false)">
+        <div style="background:white;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,0.25);width:100%;max-width:440px;overflow:hidden;">
+
+            {{-- Header --}}
+            <div style="background:linear-gradient(135deg,#065f46 0%,#059669 100%);padding:14px 18px;display:flex;align-items:center;justify-content:space-between;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5">
+                        <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+                        <rect x="3" y="14" width="7" height="7" rx="1"/>
+                        <path stroke-linecap="round" d="M14 14h2m0 0h3m-3 0v3m0 0v3m3-6h1"/>
+                    </svg>
+                    <span style="color:white;font-weight:700;font-size:14px;">Scan QR Reservasi</span>
+                </div>
+                <button wire:click="$set('showScanModal', false)"
+                        style="color:white;background:rgba(255,255,255,0.2);border:none;border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:center;">✕</button>
+            </div>
+
+            <div style="padding:20px 20px 16px;">
+
+                @if(!$scanData)
+                {{-- Step 1: Kamera Scanner + Manual Input --}}
+                <div x-data="{
+                    scanner: null,
+                    scanning: false,
+                    camErr: '',
+                    init() { this.$nextTick(() => this.startScan()); },
+                    destroy() { this.stopScan(); },
+                    startScan() {
+                        this.camErr = '';
+                        if (typeof Html5Qrcode === 'undefined') {
+                            this.camErr = 'Library scanner belum siap. Gunakan input manual.';
+                            return;
+                        }
+                        const el = document.getElementById('ams-qr-reader');
+                        if (!el) return;
+                        this.scanner = new Html5Qrcode('ams-qr-reader');
+                        this.scanner.start(
+                            { facingMode: 'environment' },
+                            { fps: 10, qrbox: { width: 220, height: 220 } },
+                            (text) => {
+                                const m = text.match(/qr-scan\/([^\/?#\s]+)/);
+                                const tok = m ? m[1] : text.trim();
+                                this.stopScan();
+                                $wire.set('scanToken', tok).then(() => $wire.lookupQr());
+                            },
+                            () => {}
+                        ).then(() => { this.scanning = true; })
+                         .catch(err => {
+                            this.scanning = false;
+                            this.camErr = 'Kamera tidak tersedia atau izin ditolak. Gunakan input manual.';
+                         });
+                    },
+                    stopScan() {
+                        if (this.scanner) {
+                            this.scanner.stop().catch(() => {}).finally(() => {
+                                try { this.scanner.clear(); } catch(e) {}
+                                this.scanner = null;
+                                this.scanning = false;
+                            });
+                        }
+                    }
+                }">
+                    {{-- Viewfinder kamera --}}
+                    <div style="position:relative;border-radius:10px;overflow:hidden;background:#111;margin-bottom:10px;">
+                        <div id="ams-qr-reader" style="width:100%;"></div>
+                        <div x-show="!scanning && !camErr"
+                             style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:12px;background:#1f2937;">
+                            Memulai kamera...
+                        </div>
+                    </div>
+
+                    <div x-show="camErr" style="background:#fef2f2;border:1px solid #fca5a5;color:#dc2626;border-radius:8px;padding:8px 12px;font-size:11px;margin-bottom:10px;" x-text="camErr"></div>
+
+                    <div style="display:flex;justify-content:center;gap:8px;margin-bottom:14px;">
+                        <button x-show="!scanning" x-on:click="startScan()" type="button"
+                                style="font-size:11px;font-weight:600;padding:5px 14px;border-radius:6px;border:1px solid #059669;color:#059669;background:white;cursor:pointer;">
+                            📷 Nyalakan Kamera
+                        </button>
+                        <button x-show="scanning" x-on:click="stopScan()" type="button"
+                                style="font-size:11px;font-weight:600;padding:5px 14px;border-radius:6px;border:1px solid #6b7280;color:#6b7280;background:white;cursor:pointer;">
+                            ■ Stop Kamera
+                        </button>
+                    </div>
+
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+                        <div style="flex:1;height:1px;background:#e5e7eb;"></div>
+                        <span style="font-size:11px;color:#9ca3af;">atau input manual</span>
+                        <div style="flex:1;height:1px;background:#e5e7eb;"></div>
+                    </div>
+
+                    <div style="display:flex;gap:8px;">
+                        <input wire:model="scanToken" type="text"
+                               placeholder="Paste token QR di sini..."
+                               style="flex:1;border:1.5px solid #d1d5db;border-radius:8px;padding:8px 12px;font-size:12px;font-family:monospace;outline:none;"
+                               wire:keydown.enter="lookupQr" x-on:keydown.enter="stopScan()" />
+                        <button wire:click="lookupQr" wire:loading.attr="disabled"
+                                x-on:click="stopScan()"
+                                style="background:#059669;color:white;border:none;border-radius:8px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;">
+                            <span wire:loading.remove wire:target="lookupQr">Cari</span>
+                            <span wire:loading wire:target="lookupQr">...</span>
+                        </button>
+                    </div>
+
+                    @if($scanError)
+                    <div style="background:#fef2f2;border:1px solid #fca5a5;color:#dc2626;border-radius:8px;padding:8px 12px;font-size:12px;margin-top:8px;">
+                        {{ $scanError }}
+                    </div>
+                    @endif
+                </div>
+
+                @else
+                {{-- Step 2: Konfirmasi --}}
+                @php
+                    $sStatus = $scanData['status'];
+                    $canBuka  = $sStatus === 'Siap Pelaksanaan';
+                    $canTutup = $sStatus === 'Sedang Berlangsung';
+                    $statusBg = match($sStatus) {
+                        'Siap Pelaksanaan'   => '#ecfdf5',
+                        'Sedang Berlangsung' => '#fff7ed',
+                        default              => '#f9fafb',
+                    };
+                    $statusColor = match($sStatus) {
+                        'Siap Pelaksanaan'   => '#065f46',
+                        'Sedang Berlangsung' => '#c2410c',
+                        default              => '#6b7280',
+                    };
+                @endphp
+                <div style="background:{{ $statusBg }};border-radius:10px;padding:14px;margin-bottom:14px;">
+                    <div style="font-size:11px;font-weight:800;color:{{ $statusColor }};text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px;">
+                        {{ $sStatus }}
+                    </div>
+                    @foreach([
+                        ['Nomor',     $scanData['nomor']],
+                        ['Fasilitas', $scanData['fasilitas']],
+                        ['Tanggal',   $scanData['tanggal']],
+                        ['Jam',       $scanData['jam']],
+                        ['Tenant',    $scanData['tenant']],
+                        ['Unit',      $scanData['unit']],
+                    ] as [$lbl, $val])
+                    <div style="display:flex;gap:8px;font-size:12px;margin-bottom:4px;">
+                        <span style="color:#9ca3af;width:64px;flex-shrink:0;">{{ $lbl }}</span>
+                        <span style="color:#111827;font-weight:600;">{{ $val }}</span>
+                    </div>
+                    @endforeach
+                </div>
+
+                @if($canBuka || $canTutup)
+                <p style="font-size:11px;color:#6b7280;margin-bottom:10px;text-align:center;">
+                    Konfirmasi tindakan untuk reservasi ini:
+                </p>
+                <div style="display:flex;gap:8px;">
+                    <button wire:click="$set('scanData', null)"
+                            style="flex:1;border:1px solid #d1d5db;background:white;color:#6b7280;border-radius:8px;padding:9px;font-size:12px;font-weight:600;cursor:pointer;">
+                        ← Kembali
+                    </button>
+                    @if($canBuka)
+                    <button wire:click="qrBuka" wire:loading.attr="disabled"
+                            style="flex:2;background:#16a34a;color:white;border:none;border-radius:8px;padding:9px;font-size:13px;font-weight:700;cursor:pointer;">
+                        <span wire:loading.remove wire:target="qrBuka">▶ Konfirmasi Buka Fasilitas</span>
+                        <span wire:loading wire:target="qrBuka">Memproses...</span>
+                    </button>
+                    @elseif($canTutup)
+                    <button wire:click="qrTutup" wire:loading.attr="disabled"
+                            style="flex:2;background:#dc2626;color:white;border:none;border-radius:8px;padding:9px;font-size:13px;font-weight:700;cursor:pointer;">
+                        <span wire:loading.remove wire:target="qrTutup">■ Konfirmasi Tutup Fasilitas</span>
+                        <span wire:loading wire:target="qrTutup">Memproses...</span>
+                    </button>
+                    @endif
+                </div>
+                @else
+                <div style="background:#f3f4f6;border-radius:8px;padding:10px;text-align:center;font-size:12px;color:#6b7280;">
+                    Status <strong>{{ $sStatus }}</strong> — tidak ada tindakan yang diperlukan.
+                </div>
+                <button wire:click="$set('showScanModal', false)"
+                        style="width:100%;margin-top:10px;background:#6b7280;color:white;border:none;border-radius:8px;padding:9px;font-size:12px;font-weight:600;cursor:pointer;">
+                    Tutup
+                </button>
+                @endif
+                @endif
+
+            </div>
+        </div>
+    </div>
     @endif
 
 </div>

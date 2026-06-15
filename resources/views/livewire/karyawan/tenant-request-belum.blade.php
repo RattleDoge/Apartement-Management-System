@@ -7,6 +7,7 @@ use Livewire\WithFileUploads;
 use App\Models\TenantRequest;
 use App\Models\WorkOrder;
 use App\Models\Tenant;
+use App\Models\HandoverUnit;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Carbon;
 
@@ -112,6 +113,10 @@ new #[Layout('layouts.karyawan')] class extends Component {
         if ($tenant) {
             $this->formNama        = strtoupper($tenant->user?->name ?? '');
             $this->formKepemilikan = $tenant->status ?? '';
+        }
+        $handover = HandoverUnit::whereRaw('UPPER(lot_no) = ?', [$lot])->first();
+        if ($handover?->str_date) {
+            $this->formTglStr = $handover->str_date->format('Y-m-d');
         }
     }
 

@@ -147,7 +147,7 @@ new #[Layout('layouts.karyawan')] class extends Component {
         InOutPermit::create([
             'nomor'        => $nomor,
             'unit'         => $this->formUnit,
-            'tenant_name'  => $this->formTenantName ?: null,
+            'tenant_name'  => $this->formTenantName ? strtoupper($this->formTenantName) : null,
             'tanggal'      => $this->formTanggal,
             'tanggal_ijin' => $this->formTanggalIjin,
             'jam'          => $this->formJam ?: null,
@@ -179,7 +179,7 @@ new #[Layout('layouts.karyawan')] class extends Component {
         $permit = InOutPermit::findOrFail($this->selectedId);
         $data   = [
             'unit'         => $this->formUnit,
-            'tenant_name'  => $this->formTenantName ?: null,
+            'tenant_name'  => $this->formTenantName ? strtoupper($this->formTenantName) : null,
             'tanggal'      => $this->formTanggal,
             'tanggal_ijin' => $this->formTanggalIjin,
             'jam'          => $this->formJam ?: null,
@@ -457,19 +457,32 @@ new #[Layout('layouts.karyawan')] class extends Component {
                             </td>
                             <td class="border border-gray-200 px-1 py-0.5">{{ $permit->request_by }}</td>
                             <td class="border border-gray-200 px-1 py-0.5 text-center">{{ $permit->request_via }}</td>
-                            <td class="border border-gray-200 px-1 py-0.5 whitespace-nowrap {{ $statusColor }}">
-                                {{ $permit->status }}
-                                @if($permit->status === 'Approve by Customer Service' && $permit->approved_cs_by)
-                                    <div class="text-gray-400 text-[10px]">{{ $permit->approved_cs_by }}</div>
-                                @elseif($permit->status === 'Approve by FA' && $permit->approved_fa_by)
-                                    <div class="text-gray-400 text-[10px]">{{ $permit->approved_fa_by }}</div>
-                                @elseif($permit->status === 'Approve by Security' && $permit->approved_sec_by)
-                                    <div class="text-gray-400 text-[10px]">{{ $permit->approved_sec_by }}</div>
-                                @endif
+                            <td class="border border-gray-200 px-1 py-1 text-center">
+                                @php
+                                    $isDitolak = $permit->status === 'Tidak Disetujui';
+                                    $depts = [
+                                        ['CS',  $permit->approved_cs_by,  'CS: '.($permit->approved_cs_by ?? 'belum')],
+                                        ['FA',  $permit->approved_fa_by,  'FA: '.($permit->approved_fa_by ?? 'belum')],
+                                        ['SEC', $permit->approved_sec_by, 'SEC: '.($permit->approved_sec_by ?? 'belum')],
+                                    ];
+                                @endphp
+                                {{-- Lampu dept --}}
+                                <div style="display:flex;gap:4px;justify-content:center;margin-bottom:3px;">
+                                    @foreach($depts as [$dLabel, $dBy, $dTitle])
+                                    <div style="display:flex;flex-direction:column;align-items:center;gap:1px;" title="{{ $dTitle }}">
+                                        <span style="display:inline-block;width:9px;height:9px;border-radius:50%;box-shadow:inset 0 1px 2px rgba(0,0,0,.2);background:{{ $isDitolak ? '#ef4444' : ($dBy ? '#22c55e' : '#d1d5db') }};"></span>
+                                        <span style="font-size:7px;color:{{ $dBy ? '#15803d' : '#9ca3af' }};">{{ $dLabel }}</span>
+                                    </div>
+                                    @endforeach
+                                </div>
+                                {{-- Status text --}}
+                                <div class="text-[10px] whitespace-nowrap font-medium {{ $statusColor }}">
+                                    {{ $permit->status }}
+                                </div>
                             </td>
                             <td class="border border-gray-200 px-1 py-0.5 text-center">
                                 @if($permit->foto)
-                                    <a href="{{ Storage::url($permit->foto) }}" target="_blank"
+                                    <a href="{{ asset('storage/' . $permit->foto) }}" target="_blank"
                                        wire:click.stop class="text-blue-500 underline text-xs whitespace-nowrap">
                                         Lampiran Foto
                                     </a>

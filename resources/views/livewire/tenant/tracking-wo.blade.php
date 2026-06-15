@@ -2,24 +2,65 @@
 
 use Livewire\Volt\Component;
 use Livewire\Attributes\Layout;
+use Livewire\WithFileUploads;
+use Illuminate\Support\Facades\Storage;
 use App\Models\WorkOrder;
 use App\Models\WoFeedback;
 
 new #[Layout('layouts.tenant')] class extends Component {
+    use WithFileUploads;
 
-    public ?int   $selectedId   = null;
-    public int    $fRating      = 0;
-    public string $fComment     = '';
-    public string $feedbackMsg  = '';
-    public bool   $showFeedback = false;
+    public ?int   $selectedId    = null;
+    public int    $fRating       = 0;
+    public string $fComment      = '';
+    public string $feedbackMsg   = '';
+    public bool   $showFeedback  = false;
+
+    public        $buktiWoFile   = null;
+    public string $uploadBuktiMsg = '';
+    public bool   $uploadBuktiOk  = false;
 
     public function selectWo(int $id): void
     {
-        $this->selectedId   = $id;
-        $this->showFeedback = false;
-        $this->feedbackMsg  = '';
-        $this->fRating      = 0;
-        $this->fComment     = '';
+        $this->selectedId    = $id;
+        $this->showFeedback  = false;
+        $this->feedbackMsg   = '';
+        $this->fRating       = 0;
+        $this->fComment      = '';
+        $this->buktiWoFile   = null;
+        $this->uploadBuktiMsg = '';
+        $this->uploadBuktiOk  = false;
+    }
+
+    public function uploadBuktiWo(): void
+    {
+        $this->validate([
+            'buktiWoFile' => 'required|image|mimes:jpg,jpeg,png,webp|max:5120',
+        ], [
+            'buktiWoFile.required' => 'Pilih file bukti pembayaran.',
+            'buktiWoFile.image'    => 'File harus berupa gambar.',
+            'buktiWoFile.max'      => 'Ukuran file maksimal 5 MB.',
+        ]);
+
+        $wo = WorkOrder::findOrFail($this->selectedId);
+
+        if ($wo->bukti_bayar_wo && Storage::disk('public')->exists($wo->bukti_bayar_wo)) {
+            Storage::disk('public')->delete($wo->bukti_bayar_wo);
+        }
+
+        $path = $this->buktiWoFile->store('bukti-bayar-wo', 'public');
+        $wo->update([
+            'bukti_bayar_wo'     => $path,
+            'tgl_bukti_bayar_wo' => now(),
+            'fin_status'         => null,
+            'fin_by'             => null,
+            'fin_at'             => null,
+            'is_berbayar'        => true,
+        ]);
+
+        $this->buktiWoFile    = null;
+        $this->uploadBuktiMsg = 'Bukti pembayaran berhasil diunggah. Menunggu verifikasi dari CS/Finance.';
+        $this->uploadBuktiOk  = true;
     }
 
     public function openFeedback(): void
@@ -164,6 +205,114 @@ new #[Layout('layouts.tenant')] class extends Component {
                     <p class="text-[11px] text-gray-500">Teknisi: <strong>{{ $selectedWo->assign_staff }}</strong></p>
                     @endif
                 </div>
+
+                {{-- Pembayaran WO --}}
+                @php
+                    $woItems  = $selectedWo->item_service ?? [];
+                    $woTotal  = collect($woItems)->sum(fn($i) => ($i['harga'] ?? 0) * ($i['qty'] ?? 1));
+                    $finSt    = $selectedWo->fin_status;
+                @endphp
+                @if(count($woItems) > 0 && $woTotal > 0)
+                <div class="mx-4 mb-4 rounded-xl border overflow-hidden
+                    {{ $finSt === 'Approved' ? 'border-green-300 bg-green-50'
+                     : ($finSt === 'Rejected' ? 'border-red-300 bg-red-50'
+                     : 'border-amber-300 bg-amber-50') }}">
+                    <div class="flex items-center justify-between px-4 py-2.5 border-b
+                        {{ $finSt === 'Approved' ? 'border-green-200 bg-green-100'
+                         : ($finSt === 'Rejected' ? 'border-red-200 bg-red-100'
+                         : 'border-amber-200 bg-amber-100') }}">
+                        <span class="text-xs font-bold {{ $finSt === 'Approved' ? 'text-green-800' : ($finSt === 'Rejected' ? 'text-red-800' : 'text-amber-800') }}">
+                            Tagihan Work Order
+                        </span>
+                        @if($finSt === 'Approved')
+                        <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-600 text-white">✔ LUNAS</span>
+                        @elseif($finSt === 'Rejected')
+                        <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-600 text-white">✖ DITOLAK</span>
+                        @elseif($selectedWo->bukti_bayar_wo)
+                        <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-600 text-white">Bukti Sedang Diverifikasi</span>
+                        @else
+                        <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-600 text-white">Menunggu Pembayaran</span>
+                        @endif
+                    </div>
+                    <div class="px-4 py-3 space-y-2">
+                        @if($selectedWo->keterangan_biaya)
+                        <p class="text-[11px] text-gray-600 italic">{{ $selectedWo->keterangan_biaya }}</p>
+                        @endif
+
+                        @if(count($woItems) > 0)
+                        <table class="w-full text-[11px] border-collapse">
+                            <thead>
+                                <tr class="bg-white/60">
+                                    <th class="text-left px-2 py-1 border border-gray-200 font-semibold text-gray-600">Item</th>
+                                    <th class="text-center px-2 py-1 border border-gray-200 w-12 font-semibold text-gray-600">Qty</th>
+                                    <th class="text-right px-2 py-1 border border-gray-200 w-28 font-semibold text-gray-600">Harga</th>
+                                    <th class="text-right px-2 py-1 border border-gray-200 w-28 font-semibold text-gray-600">Subtotal</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach($woItems as $item)
+                                @php $sub = ($item['harga'] ?? 0) * ($item['qty'] ?? 1); @endphp
+                                <tr class="bg-white/40">
+                                    <td class="px-2 py-1 border border-gray-200">{{ $item['nama'] }}</td>
+                                    <td class="px-2 py-1 border border-gray-200 text-center">{{ $item['qty'] }}</td>
+                                    <td class="px-2 py-1 border border-gray-200 text-right">Rp {{ number_format($item['harga'] ?? 0, 0, ',', '.') }}</td>
+                                    <td class="px-2 py-1 border border-gray-200 text-right font-semibold">Rp {{ number_format($sub, 0, ',', '.') }}</td>
+                                </tr>
+                                @endforeach
+                            </tbody>
+                            <tfoot>
+                                <tr class="font-bold">
+                                    <td colspan="3" class="px-2 py-1 border border-gray-200 text-right">Total</td>
+                                    <td class="px-2 py-1 border border-gray-200 text-right text-blue-700">Rp {{ number_format($woTotal, 0, ',', '.') }}</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                        @endif
+
+                        {{-- Bukti bayar yang sudah diupload --}}
+                        @if($selectedWo->bukti_bayar_wo)
+                        <div class="mt-2">
+                            <p class="text-[10px] text-gray-500 mb-1">Bukti pembayaran diupload: {{ $selectedWo->tgl_bukti_bayar_wo?->format('d/m/Y H:i') }}</p>
+                            <img src="{{ asset('storage/' . $selectedWo->bukti_bayar_wo) }}"
+                                 class="max-h-40 rounded border border-gray-200 object-contain">
+                        </div>
+                        @endif
+
+                        @if($finSt === 'Rejected')
+                        <div class="bg-red-100 rounded p-2 text-[11px] text-red-700">
+                            <strong>Ditolak:</strong> {{ $selectedWo->fin_notes ?? 'Silakan hubungi CS.' }}
+                        </div>
+                        @endif
+
+                        {{-- Upload bukti bayar (belum approved) --}}
+                        @if($finSt !== 'Approved')
+                        <div class="pt-2 border-t border-dashed border-current border-opacity-30">
+                            @if($uploadBuktiMsg)
+                            <p class="text-xs {{ $uploadBuktiOk ? 'text-green-700 bg-green-50' : 'text-red-700 bg-red-50' }} rounded px-3 py-2 mb-2">
+                                {{ $uploadBuktiMsg }}
+                            </p>
+                            @endif
+                            <p class="text-[11px] font-semibold text-gray-700 mb-1">
+                                {{ $selectedWo->bukti_bayar_wo ? 'Ganti Bukti Pembayaran' : 'Upload Bukti Pembayaran' }}
+                            </p>
+                            <input type="file" wire:model="buktiWoFile" accept="image/*"
+                                   class="text-[11px] text-gray-600 block mb-2">
+                            @if($buktiWoFile)
+                            <img src="{{ $buktiWoFile->temporaryUrl() }}"
+                                 class="max-h-32 rounded border border-gray-200 object-contain mb-2">
+                            @endif
+                            @error('buktiWoFile') <p class="text-red-500 text-[10px] mb-1">{{ $message }}</p> @enderror
+                            <button wire:click="uploadBuktiWo"
+                                    wire:loading.attr="disabled"
+                                    class="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded disabled:opacity-60">
+                                <span wire:loading.remove wire:target="uploadBuktiWo">Upload</span>
+                                <span wire:loading wire:target="uploadBuktiWo">Mengupload...</span>
+                            </button>
+                        </div>
+                        @endif
+                    </div>
+                </div>
+                @endif
 
                 {{-- Feedback section --}}
                 @if($selectedWo->status_comp === 'Work Order Close')

@@ -2,6 +2,7 @@
 use Livewire\Volt\Component;
 use Livewire\Attributes\Layout;
 use Livewire\WithPagination;
+use Illuminate\Support\Facades\Storage;
 use App\Models\WorkOrder;
 
 new #[Layout('layouts.karyawan')] class extends Component {
@@ -20,7 +21,10 @@ new #[Layout('layouts.karyawan')] class extends Component {
 
     public function with(): array
     {
-        $q = WorkOrder::where('is_berbayar', true)->orderByDesc('tanggal');
+        $q = WorkOrder::where(fn($sub) =>
+                $sub->where('is_berbayar', true)
+                    ->orWhereNotNull('item_service')
+             )->orderByDesc('tanggal');
 
         match ($this->filterFin) {
             'pending'  => $q->whereNull('fin_by'),
@@ -138,7 +142,8 @@ new #[Layout('layouts.karyawan')] class extends Component {
                     <th class="px-3 py-2 text-left font-semibold">TANGGAL</th>
                     <th class="px-3 py-2 text-right font-semibold">BIAYA (Rp)</th>
                     <th class="px-3 py-2 text-left font-semibold">KETERANGAN BIAYA</th>
-                    <th class="px-3 py-2 text-center font-semibold">STATUS FIN</th>
+                    <th class="px-3 py-2 text-center font-semibold">STATUS CS</th>
+                    <th class="px-3 py-2 text-center font-semibold">STATUS FA</th>
                     <th class="px-3 py-2 text-center font-semibold">AKSI</th>
                 </tr>
             </thead>
@@ -151,21 +156,36 @@ new #[Layout('layouts.karyawan')] class extends Component {
                     <td class="px-3 py-2">{{ $wo->jenis_wo }}</td>
                     <td class="px-3 py-2 whitespace-nowrap">{{ $wo->tanggal?->format('d/m/Y') }}</td>
                     <td class="px-3 py-2 text-right font-medium">
-                        {{ $wo->biaya_wo ? number_format($wo->biaya_wo, 0, ',', '.') : '-' }}
+                        @php
+                            $rowTotal = collect($wo->item_service ?? [])->sum(fn($i) => ($i['harga'] ?? 0) * ($i['qty'] ?? 1));
+                            $rowTotal = $rowTotal ?: ($wo->biaya_wo ?? 0);
+                        @endphp
+                        {{ $rowTotal > 0 ? 'Rp ' . number_format($rowTotal, 0, ',', '.') : '-' }}
                     </td>
                     <td class="px-3 py-2 max-w-xs truncate" title="{{ $wo->keterangan_biaya }}">
                         {{ $wo->keterangan_biaya ?: '-' }}
                     </td>
                     <td class="px-3 py-2 text-center">
+                        @if($wo->cs_status === 'Verified')
+                        <span class="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded bg-blue-100 text-blue-700">✔ Verified</span>
+                        @elseif($wo->cs_status === 'Rejected')
+                        <span class="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded bg-red-100 text-red-600">✖ Tolak</span>
+                        @elseif($wo->bukti_bayar_wo)
+                        <span class="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded bg-amber-100 text-amber-700">Menunggu</span>
+                        @else
+                        <span class="text-[9px] text-gray-400">-</span>
+                        @endif
+                    </td>
+                    <td class="px-3 py-2 text-center">
                         @php
                             if (!$wo->fin_by) { $finDot = 'bg-yellow-400'; $finLbl = 'Menunggu'; $finTxt = 'text-yellow-700'; }
-                            elseif ($wo->fin_status === 'Approved') { $finDot = 'bg-green-500'; $finLbl = 'Disetujui'; $finTxt = 'text-green-700'; }
+                            elseif ($wo->fin_status === 'Approved') { $finDot = 'bg-green-500'; $finLbl = 'LUNAS'; $finTxt = 'text-green-700'; }
                             else { $finDot = 'bg-red-500'; $finLbl = 'Ditolak'; $finTxt = 'text-red-600'; }
                         @endphp
                         <div class="flex flex-col items-center gap-0.5">
                             <div class="flex items-center gap-1">
-                                <span class="inline-block w-3.5 h-3.5 rounded-full {{ $finDot }} shadow-md" title="{{ $finLbl }}"></span>
-                                <span class="text-[10px] font-bold text-gray-600">FIN</span>
+                                <span class="inline-block w-3.5 h-3.5 rounded-full {{ $finDot }} shadow-md"></span>
+                                <span class="text-[10px] font-bold text-gray-600">FA</span>
                             </div>
                             <span class="text-[9px] font-semibold {{ $finTxt }}">{{ $finLbl }}</span>
                         </div>
@@ -230,37 +250,110 @@ new #[Layout('layouts.karyawan')] class extends Component {
                     <div class="col-span-2"><span class="text-gray-400">Action Taken</span><p class="mt-0.5">{{ $viewing->action_taken ?: '-' }}</p></div>
                 </div>
 
-                {{-- Biaya --}}
+                {{-- Item & Service --}}
+                @php
+                    $viewItems = $viewing->item_service ?? [];
+                    $viewTotal = collect($viewItems)->sum(fn($i) => ($i['harga'] ?? 0) * ($i['qty'] ?? 1));
+                @endphp
                 <div class="border-t border-gray-100 pt-3">
-                    <p class="font-semibold text-gray-600 mb-2">Informasi Biaya</p>
-                    <div class="grid grid-cols-2 gap-x-6 gap-y-2">
-                        <div><span class="text-gray-400">Biaya WO</span>
-                            <p class="font-bold text-base text-gray-900 mt-0.5">
-                                Rp {{ $viewing->biaya_wo ? number_format($viewing->biaya_wo, 0, ',', '.') : '0' }}
-                            </p>
-                        </div>
-                        <div><span class="text-gray-400">Keterangan</span><p class="mt-0.5">{{ $viewing->keterangan_biaya ?: '-' }}</p></div>
-                    </div>
+                    <p class="font-semibold text-gray-600 mb-2">Item & Service / Tagihan</p>
+                    @if($viewing->keterangan_biaya)
+                    <p class="text-[11px] text-gray-500 italic mb-2">{{ $viewing->keterangan_biaya }}</p>
+                    @endif
+                    @if(count($viewItems) > 0)
+                    <table class="w-full text-[11px] border-collapse mb-2">
+                        <thead>
+                            <tr class="bg-blue-50">
+                                <th class="text-left px-2 py-1 border border-gray-200">Item</th>
+                                <th class="text-center px-2 py-1 border border-gray-200 w-10">Qty</th>
+                                <th class="text-right px-2 py-1 border border-gray-200 w-28">Subtotal</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach($viewItems as $item)
+                            <tr>
+                                <td class="px-2 py-1 border border-gray-200">{{ $item['nama'] }}</td>
+                                <td class="px-2 py-1 border border-gray-200 text-center">{{ $item['qty'] }}</td>
+                                <td class="px-2 py-1 border border-gray-200 text-right font-semibold">
+                                    Rp {{ number_format(($item['harga'] ?? 0) * ($item['qty'] ?? 1), 0, ',', '.') }}
+                                </td>
+                            </tr>
+                            @endforeach
+                        </tbody>
+                        <tfoot>
+                            <tr class="font-bold bg-gray-50">
+                                <td colspan="2" class="px-2 py-1 border border-gray-200 text-right">Total</td>
+                                <td class="px-2 py-1 border border-gray-200 text-right text-blue-700">
+                                    Rp {{ number_format($viewTotal, 0, ',', '.') }}
+                                </td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                    @else
+                    <p class="text-gray-400 text-[11px]">Belum ada item.</p>
+                    @endif
                 </div>
 
-                {{-- Status Approval --}}
+                {{-- Bukti Bayar Tenant --}}
                 <div class="border-t border-gray-100 pt-3">
-                    <p class="font-semibold text-gray-600 mb-2">Status Approval Finance</p>
+                    <p class="font-semibold text-gray-600 mb-2">Bukti Pembayaran Tenant</p>
+                    @if($viewing->bukti_bayar_wo)
+                    <p class="text-[10px] text-gray-400 mb-2">
+                        Diupload: {{ $viewing->tgl_bukti_bayar_wo?->format('d/m/Y H:i') }}
+                    </p>
+                    <a href="{{ asset('storage/' . $viewing->bukti_bayar_wo) }}" target="_blank">
+                        <img src="{{ asset('storage/' . $viewing->bukti_bayar_wo) }}"
+                             class="max-h-52 rounded border border-gray-200 object-contain cursor-zoom-in hover:opacity-90 w-full">
+                    </a>
+                    @else
+                    <p class="text-amber-600 text-[11px] bg-amber-50 rounded px-3 py-2">
+                        Tenant belum mengupload bukti pembayaran.
+                    </p>
+                    @endif
+                </div>
+
+                {{-- Status CS --}}
+                <div class="border-t border-gray-100 pt-3">
+                    <p class="font-semibold text-gray-600 mb-2">Status Verifikasi CS</p>
+                    @if($viewing->cs_status === 'Verified')
+                    <div class="flex items-center gap-2">
+                        <span class="px-3 py-1 bg-blue-100 text-blue-800 rounded text-xs font-semibold">✔ Terverifikasi CS</span>
+                        <span class="text-[10px] text-gray-500">oleh {{ $viewing->cs_by }} · {{ $viewing->cs_at?->format('d/m/Y H:i') }}</span>
+                    </div>
+                    @elseif($viewing->cs_status === 'Rejected')
+                    <div>
+                        <span class="px-3 py-1 bg-red-100 text-red-800 rounded text-xs font-semibold">✖ Ditolak CS</span>
+                        <p class="text-red-600 text-[11px] mt-1">{{ $viewing->cs_notes }}</p>
+                    </div>
+                    @else
+                    <span class="px-3 py-1 bg-yellow-100 text-yellow-800 rounded text-xs font-semibold">Belum diverifikasi CS</span>
+                    @endif
+                </div>
+
+                {{-- Status Approval FA --}}
+                <div class="border-t border-gray-100 pt-3">
+                    <p class="font-semibold text-gray-600 mb-2">Status Approval Finance (FA)</p>
                     @if(!$viewing->fin_by)
-                        <span class="px-3 py-1 bg-yellow-100 text-yellow-800 rounded text-xs font-semibold">Menunggu Persetujuan</span>
+                        <span class="px-3 py-1 bg-yellow-100 text-yellow-800 rounded text-xs font-semibold">Menunggu Persetujuan FA</span>
                     @elseif($viewing->fin_status === 'Approved')
                         <div class="space-y-1">
-                            <span class="px-3 py-1 bg-green-100 text-green-800 rounded text-xs font-semibold">Approved</span>
+                            <span class="px-3 py-1 bg-green-100 text-green-800 rounded text-xs font-semibold">✔ LUNAS — FA Approved</span>
                             <p class="text-gray-500 mt-1">Oleh: {{ $viewing->fin_by }} · {{ $viewing->fin_at?->format('d/m/Y H:i') }}</p>
                         </div>
                     @else
                         <div class="space-y-1">
-                            <span class="px-3 py-1 bg-red-100 text-red-800 rounded text-xs font-semibold">Rejected</span>
+                            <span class="px-3 py-1 bg-red-100 text-red-800 rounded text-xs font-semibold">Rejected FA</span>
                             <p class="text-gray-500 mt-1">Oleh: {{ $viewing->fin_by }} · {{ $viewing->fin_at?->format('d/m/Y H:i') }}</p>
                             <p class="text-red-600 mt-1">Catatan: {{ $viewing->fin_notes }}</p>
                         </div>
                     @endif
                 </div>
+
+                @if($viewing->cs_status !== 'Verified' && !$viewing->fin_by)
+                <div class="bg-yellow-50 border border-yellow-200 rounded p-3 text-[11px] text-yellow-800">
+                    ⚠ Bukti bayar belum diverifikasi oleh CS. FA tetap bisa approve, namun disarankan tunggu verifikasi CS terlebih dahulu.
+                </div>
+                @endif
 
                 {{-- Reject Form --}}
                 @if($showReject && !$viewing->fin_by)

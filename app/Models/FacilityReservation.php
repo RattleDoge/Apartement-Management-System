@@ -27,7 +27,7 @@ class FacilityReservation extends Model
     public function generateQrToken(): void
     {
         if (! $this->qr_token) {
-            $this->update(['qr_token' => Str::random(48)]);
+            $this->update(['qr_token' => strtoupper(Str::random(6))]);
         }
     }
 

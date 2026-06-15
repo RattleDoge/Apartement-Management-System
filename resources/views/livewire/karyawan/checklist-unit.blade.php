@@ -93,7 +93,7 @@ new #[Layout('layouts.karyawan')] class extends Component {
 
         $data = [
             'lot_no'              => strtoupper(trim($this->fLotNo)),
-            'tenant_name'         => $this->fTenantName ?: null,
+            'tenant_name'         => $this->fTenantName ? strtoupper($this->fTenantName) : null,
             'checklist_date'      => $this->fChecklistDate,
             'defect'              => $this->fDefect ?: null,
             'no_mtr_water'        => $this->fNoMtrWater ?: null,

@@ -5,6 +5,7 @@ use Livewire\Attributes\Layout;
 use App\Models\TenantRequest;
 use App\Models\InOutPermit;
 use App\Models\FacilityReservation;
+use App\Models\WorkOrder;
 use App\Models\EmergencyContact;
 use App\Models\Banner;
 use App\Models\Invoice;
@@ -38,12 +39,20 @@ new #[Layout('layouts.tenant')] class extends Component {
             ? Invoice::where('debtor_acct', $unit)->where('status_bayar', 'Belum Lunas')->count()
             : 0;
 
+        $pendingWoPayment = $unit
+            ? WorkOrder::where('lot_no', $unit)
+                ->where('is_berbayar', true)
+                ->where(fn($q) => $q->where('fin_status', '!=', 'Approved')->orWhereNull('fin_status'))
+                ->count()
+            : 0;
+
         $emergencyContacts = EmergencyContact::orderBy('kategori')->orderBy('nama')->get();
         $activeBanners     = Banner::allActive();
 
         return compact(
             'tenantProfile', 'pendingRequests', 'pendingPermits',
-            'pendingReservations', 'unpaidInvoices', 'emergencyContacts', 'activeBanners'
+            'pendingReservations', 'unpaidInvoices', 'pendingWoPayment',
+            'emergencyContacts', 'activeBanners'
         );
     }
 }
@@ -310,6 +319,28 @@ new #[Layout('layouts.tenant')] class extends Component {
             </a>
 
         </div>
+
+        {{-- WO Berbayar alert --}}
+        @if($pendingWoPayment > 0)
+        <a href="{{ route('tenant.tracking-wo') }}"
+           style="display:flex; align-items:center; gap:14px; margin-top:16px; padding:14px 16px; border-radius:12px; background:#fffbeb; border:1px solid #fcd34d; text-decoration:none; transition:background 0.15s;"
+           onmouseover="this.style.background='#fef3c7'" onmouseout="this.style.background='#fffbeb'">
+            <div style="width:36px; height:36px; border-radius:10px; background:#fef3c7; border:1px solid #fcd34d; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+                </svg>
+            </div>
+            <div style="flex:1;">
+                <p style="font-size:13px; font-weight:700; color:#92400e; margin-bottom:2px;">
+                    Ada {{ $pendingWoPayment }} WO Berbayar yang Perlu Dilunasi
+                </p>
+                <p style="font-size:12px; color:#b45309;">Klik untuk melihat detail dan upload bukti pembayaran.</p>
+            </div>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+            </svg>
+        </a>
+        @endif
 
         {{-- Bottom info bar --}}
         <div style="margin-top:24px; display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-radius:12px; background:#f9fafb; border:1px solid #f3f4f6;">

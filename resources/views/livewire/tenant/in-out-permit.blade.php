@@ -93,7 +93,7 @@ new #[Layout('layouts.tenant')] class extends Component {
         InOutPermit::create([
             'nomor'        => $nomor,
             'unit'         => $tenantProfile?->unit_number ?? '',
-            'tenant_name'  => $user->name,
+            'tenant_name'  => strtoupper($user->name),
             'tanggal'      => now(),
             'tanggal_ijin' => $this->formTanggalIjin,
             'jam'          => $this->formJam,
@@ -290,13 +290,10 @@ new #[Layout('layouts.tenant')] class extends Component {
                     <label style="display:block; font-size:12px; font-weight:600; color:#374151; margin-bottom:8px;">Jenis Perpindahan <span style="color:#ef4444;">*</span></label>
                     <div style="display:flex; gap:10px;">
                         @foreach(['Masuk', 'Keluar'] as $j)
-                        <label style="flex:1; cursor:pointer;">
-                            <input type="radio" wire:model="formJenis" value="{{ $j }}" style="display:none;" id="jenis_{{ $j }}">
-                            <div style="text-align:center; padding:10px; border-radius:10px; border:2px solid {{ $formJenis === $j ? '#1a5c2e' : '#e5e7eb' }}; background:{{ $formJenis === $j ? '#f0fdf4' : 'white' }}; color:{{ $formJenis === $j ? '#1a5c2e' : '#6b7280' }}; font-size:13px; font-weight:600; cursor:pointer; transition:all 0.15s;"
-                                 onclick="document.getElementById('jenis_{{ $j }}').click()">
-                                {{ $j === 'Masuk' ? '↓ Masuk' : '↑ Keluar' }}
-                            </div>
-                        </label>
+                        <button type="button" wire:click="$set('formJenis', '{{ $j }}')"
+                                style="flex:1; text-align:center; padding:10px; border-radius:10px; border:2px solid {{ $formJenis === $j ? '#1a5c2e' : '#e5e7eb' }}; background:{{ $formJenis === $j ? '#f0fdf4' : 'white' }}; color:{{ $formJenis === $j ? '#1a5c2e' : '#6b7280' }}; font-size:13px; font-weight:600; cursor:pointer; transition:all 0.15s;">
+                            {{ $j === 'Masuk' ? '↓ Masuk' : '↑ Keluar' }}
+                        </button>
                         @endforeach
                     </div>
                     @error('formJenis') <p style="font-size:11px; color:#ef4444; margin-top:4px;">{{ $message }}</p> @enderror

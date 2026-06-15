@@ -171,7 +171,7 @@ new #[Layout('layouts.tenant')] class extends Component {
             FacilityReservation::create([
                 'nomor'              => $nomor,
                 'unit'               => $tenantProfile?->unit_number ?? '',
-                'tenant_name'        => $user->name,
+                'tenant_name'        => strtoupper($user->name),
                 'nama_fasilitas'     => $this->formFasilitas,
                 'tanggal_reservasi'  => $this->formTanggal,
                 'jam_mulai'          => $this->formJamMulai,
@@ -180,7 +180,7 @@ new #[Layout('layouts.tenant')] class extends Component {
                 'jumlah_tamu'        => $this->formJumlahTamu,
                 'is_berbayar'        => $defVal['is_berbayar'],
                 'biaya'              => $defVal['biaya'],
-                'status_bayar'       => $defVal['is_berbayar'] ? 'Belum Lunas' : null,
+                'status_bayar'       => $defVal['is_berbayar'] ? 'Belum Bayar' : 'Bebas Biaya',
                 'bukti_bayar'        => $bukti,
                 'request_by'         => $user->name,
                 'request_via'        => 'aplikasi',
@@ -532,10 +532,6 @@ new #[Layout('layouts.tenant')] class extends Component {
                 <button wire:click="closePanel"
                         style="width:32px; height:32px; border-radius:50%; background:#f3f4f6; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center; color:#6b7280; font-size:16px; font-weight:700; flex-shrink:0; transition:background 0.15s;"
                         onmouseover="this.style.background='#e5e7eb'" onmouseout="this.style.background='#f3f4f6'">✕</button>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-                    </svg>
-                </button>
             </div>
 
             <div style="padding:20px 24px; display:flex; flex-direction:column; gap:14px; overflow-y:auto; flex:1;">
@@ -569,11 +565,16 @@ new #[Layout('layouts.tenant')] class extends Component {
                             : 'Tunjukkan QR ini ke Security untuk menutup sesi penggunaan' }}
                     </p>
                     <div class="inline-block bg-white p-3 rounded-xl shadow border border-gray-100">
-                        {!! \SimpleSoftware\QrCode\Facades\QrCode::size(180)->generate(
+                        {!! \SimpleSoftwareIO\QrCode\Facades\QrCode::size(180)->generate(
                             url('/karyawan/qr-scan/' . $detail->qr_token)
                         ) !!}
                     </div>
                     <p class="text-[10px] text-gray-400 mt-2">{{ $detail->nomor }}</p>
+                    {{-- Token manual fallback --}}
+                    <div class="mt-3 bg-white border border-dashed border-gray-300 rounded-xl px-3 py-2 inline-block">
+                        <p class="text-[9px] text-gray-400 mb-1">Jika tidak bisa scan, berikan kode ini ke petugas:</p>
+                        <p class="font-mono text-xs font-bold text-gray-700 tracking-widest select-all">{{ $detail->qr_token }}</p>
+                    </div>
                 </div>
                 @endif
 

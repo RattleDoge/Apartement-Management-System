@@ -5,6 +5,7 @@ use App\Models\Staff;
 use App\Models\Tenant;
 use App\Models\TenantRequest;
 use App\Models\WorkOrder;
+use Illuminate\Support\Facades\Storage;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
 use Livewire\WithPagination;
@@ -73,10 +74,14 @@ new #[Layout('layouts.karyawan')] class extends Component
     public        $closeFoto            = null;
 
     // ── Item & Service form ───────────────────────────────────
-    public int    $isItemId          = 0;
-    public int    $isQty             = 1;
-    public string $isNote            = '';
+    public int    $isItemId           = 0;
+    public int    $isQty              = 1;
+    public string $isNote             = '';
     public array  $currentItemService = [];
+
+    // ── Pembayaran WO ─────────────────────────────────────────
+    public string $finNotes      = '';
+    public string $berbayarKet   = '';
 
     // ── Assign Staff form ─────────────────────────────────────
     public string $assignStaff    = '';
@@ -253,6 +258,8 @@ new #[Layout('layouts.karyawan')] class extends Component
         $this->isItemId           = 0;
         $this->isQty              = 1;
         $this->isNote             = '';
+        $this->berbayarKet        = $wo->keterangan_biaya ?? '';
+        $this->finNotes           = '';
         $this->resetValidation();
     }
 
@@ -315,6 +322,11 @@ new #[Layout('layouts.karyawan')] class extends Component
         $lot = strtoupper(trim($this->formLotNo));
         if ($lot === '') { $this->tenantInfo = []; return; }
 
+        if ($lot === 'BM') {
+            $this->tenantInfo = ['found' => true, 'name' => 'BUILDING MANAGEMENT', 'is_bm' => true];
+            return;
+        }
+
         $tenant = Tenant::with('user')
             ->whereRaw('UPPER(unit_number) = ?', [$lot])
             ->first();
@@ -348,12 +360,13 @@ new #[Layout('layouts.karyawan')] class extends Component
         $prefix = $this->formExIn === 'IN' ? 'IN' : 'EX';
         $noWo   = WorkOrder::generateNoWo($prefix);
 
-        if (! empty($this->tenantInfo['found']) && isset($this->tenantInfo['name'])) {
-            $name = $this->tenantInfo['name'];
-        } elseif ($this->formLotNo) {
-            $name = strtoupper($this->formLotNo);
-        } else {
+        $lot = strtoupper(trim($this->formLotNo));
+        if ($lot === 'BM' || $lot === '') {
             $name = 'Building Management';
+        } elseif (! empty($this->tenantInfo['found']) && isset($this->tenantInfo['name'])) {
+            $name = $this->tenantInfo['name'];
+        } else {
+            $name = $lot;
         }
 
         WorkOrder::create([
@@ -505,7 +518,12 @@ new #[Layout('layouts.karyawan')] class extends Component
             'satuan' => $item->satuan,
             'note'   => $this->isNote,
         ];
-        $wo->update(['item_service' => $items]);
+        $updateData = ['item_service' => $items];
+        $total = collect($items)->sum(fn($i) => ($i['harga'] ?? 0) * ($i['qty'] ?? 1));
+        if ($total > 0 && ! $wo->is_berbayar) {
+            $updateData['is_berbayar'] = true;
+        }
+        $wo->update($updateData);
         $this->currentItemService = $items;
         $this->isItemId = 0;
         $this->isQty    = 1;
@@ -517,8 +535,54 @@ new #[Layout('layouts.karyawan')] class extends Component
         $wo    = WorkOrder::findOrFail($this->selectedId);
         $items = $wo->item_service ?? [];
         array_splice($items, $index, 1);
-        $wo->update(['item_service' => $items ?: null]);
+        $total = collect($items)->sum(fn($i) => ($i['harga'] ?? 0) * ($i['qty'] ?? 1));
+        $updateData = ['item_service' => $items ?: null];
+        if ($total == 0) {
+            $updateData['is_berbayar'] = false;
+        }
+        $wo->update($updateData);
         $this->currentItemService = $items;
+    }
+
+    // ── Pembayaran WO ─────────────────────────────────────────
+
+    public function toggleBerbayar(): void
+    {
+        $wo = WorkOrder::findOrFail($this->selectedId);
+        $wo->update(['is_berbayar' => ! $wo->is_berbayar]);
+    }
+
+    public function saveBerbayarKet(): void
+    {
+        $wo = WorkOrder::findOrFail($this->selectedId);
+        $wo->update(['keterangan_biaya' => $this->berbayarKet]);
+    }
+
+    public function csVerifikasi(): void
+    {
+        $wo = WorkOrder::findOrFail($this->selectedId);
+        $wo->update([
+            'cs_status' => 'Verified',
+            'cs_by'     => auth()->user()->name,
+            'cs_at'     => now(),
+            'cs_notes'  => $this->finNotes,
+        ]);
+        $this->finNotes = '';
+    }
+
+    public function csTolak(): void
+    {
+        $this->validate(['finNotes' => 'required|string|min:3'], [
+            'finNotes.required' => 'Alasan penolakan wajib diisi.',
+        ]);
+        $wo = WorkOrder::findOrFail($this->selectedId);
+        $wo->update([
+            'cs_status' => 'Rejected',
+            'cs_by'     => auth()->user()->name,
+            'cs_at'     => now(),
+            'cs_notes'  => $this->finNotes,
+        ]);
+        $this->finNotes = '';
     }
 
     // ── Helpers ───────────────────────────────────────────────
@@ -541,7 +605,7 @@ new #[Layout('layouts.karyawan')] class extends Component
     public function with(): array
     {
         $query = WorkOrder::query()
-            ->where('status_comp', '!=', 'Work Order Close')
+            ->where(fn($q) => $q->where('status_comp', '!=', 'Work Order Close')->orWhereNull('status_comp'))
             ->when($this->fExIn,        fn($q) => $q->where('ex_in', $this->fExIn))
             ->when($this->fNoComplain,  fn($q) => $q->where('no_complain', 'like', "%{$this->fNoComplain}%"))
             ->when($this->fNoWo,        fn($q) => $q->where('no_wo', 'like', "%{$this->fNoWo}%"))
@@ -565,7 +629,8 @@ new #[Layout('layouts.karyawan')] class extends Component
         $staffList   = Staff::where('status', 'Aktif')->orderBy('nama_staff')->get();
 
         // FIFO: antrian pengecekan WO aktif, urut dari yang paling lama dibuat
-        $fifoQueue = WorkOrder::whereNotIn('status_comp', ['Work Order Close', 'Selesai'])
+        $fifoQueue = WorkOrder::where('ex_in', 'EX')
+            ->where(fn($q) => $q->whereNotIn('status_comp', ['Work Order Close', 'Selesai'])->orWhereNull('status_comp'))
             ->orderBy('created_at')
             ->pluck('id')
             ->values()
@@ -596,7 +661,7 @@ new #[Layout('layouts.karyawan')] class extends Component
                  style="background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 60%, #3b82f6 100%);">
                 <span>WORK ORDER</span>
                 <span class="bg-white/20 text-white text-[10px] font-bold px-2 py-0.5 rounded border border-white/40">FIFO</span>
-                <span class="text-[11px] font-normal opacity-80">WO aktif diproses berurutan dari yang paling lama diterima</span>
+                <span class="text-[11px] font-normal opacity-80">WO <span class="font-semibold">External</span> diproses berurutan dari yang paling lama diterima</span>
             </div>
         </div>
 
@@ -770,7 +835,12 @@ new #[Layout('layouts.karyawan')] class extends Component
                                     class="text-blue-500 hover:underline text-[10px]">Add user</button>
                         </td>
                         <td class="border border-gray-300 px-2 py-0.5 align-top">
-                            @if ($wo->item_service)
+                            @if ($wo->item_service && count($wo->item_service) > 0)
+                                @if ($wo->fin_status === 'Approved')
+                                <span class="inline-block mb-0.5 px-1.5 py-0.5 text-[9px] font-bold rounded bg-green-100 text-green-700 border border-green-300">✔ LUNAS</span>
+                                @else
+                                <span class="inline-block mb-0.5 px-1.5 py-0.5 text-[9px] font-bold rounded bg-red-100 text-red-600 border border-red-300">✖ BELUM LUNAS</span>
+                                @endif
                                 @foreach ($wo->item_service as $item)
                                 <div class="text-gray-600 truncate max-w-44">{{ $item['nama'] }} - {{ number_format($item['harga']) }}({{ $item['qty'] }})</div>
                                 @endforeach
@@ -869,15 +939,24 @@ new #[Layout('layouts.karyawan')] class extends Component
                     <tr>
                         <td class="{{ $fieldLabelTop }}">Lot No</td>
                         <td>
-                            <input wire:model.live.debounce.500ms="formLotNo" type="text" placeholder="MP/25/AB" style="text-transform:uppercase;" class="{{ $inp }} w-32" />
+                            <input wire:model.live.debounce.500ms="formLotNo" type="text" placeholder="MP/25/AB" style="text-transform:uppercase;" class="{{ $inp }} w-32" list="lotNoSuggestions" />
+                            <datalist id="lotNoSuggestions">
+                                <option value="BM">Building Management</option>
+                            </datalist>
                             @if (!empty($tenantInfo))
                                 @if ($tenantInfo['found'])
-                                <div class="mt-1.5 leading-5">
-                                    <div class="font-semibold">** Nama Pemilik : {{ $tenantInfo['name'] }}</div>
-                                    <a href="#" class="text-blue-600 hover:underline text-[11px]">LIHAT HISTORY REQUEST</a><br>
-                                    <span class="text-gray-500 text-[11px]">** Belum ada data STR</span><br>
-                                    <span class="text-gray-500 text-[11px]">** Belum Download Aplikasi</span>
-                                </div>
+                                    @if (!empty($tenantInfo['is_bm']))
+                                    <div class="mt-1.5 leading-5">
+                                        <div class="font-semibold text-orange-700">** Building Management (WO Internal Gedung)</div>
+                                    </div>
+                                    @else
+                                    <div class="mt-1.5 leading-5">
+                                        <div class="font-semibold">** Nama Pemilik : {{ $tenantInfo['name'] }}</div>
+                                        <a href="#" class="text-blue-600 hover:underline text-[11px]">LIHAT HISTORY REQUEST</a><br>
+                                        <span class="text-gray-500 text-[11px]">** Belum ada data STR</span><br>
+                                        <span class="text-gray-500 text-[11px]">** Belum Download Aplikasi</span>
+                                    </div>
+                                    @endif
                                 @else
                                 <div class="mt-1 text-[11px] text-red-500">** Lot No tidak ditemukan</div>
                                 @endif
@@ -917,7 +996,8 @@ new #[Layout('layouts.karyawan')] class extends Component
                                 <option value="ELECTRICAL">Electric</option>
                                 <option value="PLUMBING">Plumbing</option>
                                 <option value="PERGANTIAN ACCESS CARD">Access Card</option>
-                                <option value="MECHANICAL">Lift</option>
+                                <option value="MECHANICAL">Mechanical</option>
+                                <option value="LIFT">Lift</option>
                                 <option value="WATER / ELECTRICITY">Water / Electricity</option>
                                 <option value="GENERAL">New Work</option>
                                 <option value="PAINTING">Painting</option>
@@ -1235,6 +1315,106 @@ new #[Layout('layouts.karyawan')] class extends Component
                         @endforelse
                     </tbody>
                 </table>
+
+                @php
+                    $grandTotalIs = collect($currentItemService)->sum(fn($i) => ($i['harga'] ?? 0) * ($i['qty'] ?? 1));
+                @endphp
+                @if($grandTotalIs > 0)
+                <div class="text-right text-[11px] font-bold text-gray-700 mt-1 pr-1">
+                    Total: <span class="text-blue-700">Rp {{ number_format($grandTotalIs, 0, ',', '.') }}</span>
+                </div>
+                @endif
+
+                {{-- ── Pembayaran WO ── --}}
+                <div class="mt-4 border-t border-gray-200 pt-3">
+                    <div class="flex items-center gap-3 mb-3">
+                        <span class="font-bold text-[12px] text-amber-700">Pembayaran WO</span>
+                        @if($selectedWo->fin_status === 'Approved')
+                        <span class="px-2 py-0.5 text-[10px] font-bold rounded bg-green-100 text-green-700 border border-green-300">✔ LUNAS (FA Approved)</span>
+                        @elseif($selectedWo->cs_status === 'Verified')
+                        <span class="px-2 py-0.5 text-[10px] font-bold rounded bg-blue-100 text-blue-700 border border-blue-300">✔ CS Terverifikasi — Menunggu FA</span>
+                        @elseif($selectedWo->cs_status === 'Rejected')
+                        <span class="px-2 py-0.5 text-[10px] font-bold rounded bg-red-100 text-red-600 border border-red-300">✖ CS Tolak</span>
+                        @elseif($selectedWo->bukti_bayar_wo)
+                        <span class="px-2 py-0.5 text-[10px] font-bold rounded bg-orange-100 text-orange-700 border border-orange-300">Bukti Diupload — Menunggu Verifikasi CS</span>
+                        @elseif($selectedWo->is_berbayar)
+                        <span class="px-2 py-0.5 text-[10px] font-bold rounded bg-gray-100 text-gray-600 border border-gray-300">Menunggu Upload Bukti dari Tenant</span>
+                        @endif
+                        <label class="flex items-center gap-1.5 text-[11px] text-gray-600 cursor-pointer ml-auto">
+                            <input type="checkbox" wire:click="toggleBerbayar"
+                                   {{ $selectedWo->is_berbayar ? 'checked' : '' }}
+                                   class="w-3.5 h-3.5 rounded cursor-pointer">
+                            WO Berbayar
+                        </label>
+                    </div>
+
+                    @if($selectedWo->is_berbayar)
+                    <div class="mb-3">
+                        <label class="text-[11px] text-gray-600 block mb-1">Keterangan Biaya</label>
+                        <div class="flex gap-2">
+                            <input wire:model="berbayarKet" type="text" placeholder="Contoh: biaya penggantian access card"
+                                   class="border border-gray-300 rounded px-2 py-1 text-[11px] focus:outline-none focus:border-blue-400 flex-1">
+                            <button wire:click="saveBerbayarKet"
+                                    class="px-3 py-1 text-[10px] font-semibold rounded bg-blue-600 hover:bg-blue-700 text-white">
+                                Simpan
+                            </button>
+                        </div>
+                    </div>
+
+                    {{-- Bukti bayar dari tenant --}}
+                    @if($selectedWo->bukti_bayar_wo)
+                    <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-3">
+                        <p class="text-[10px] text-amber-700 font-semibold mb-2">
+                            Bukti Bayar dari Tenant ({{ $selectedWo->tgl_bukti_bayar_wo?->format('d/m/Y H:i') }})
+                        </p>
+                        <a href="{{ asset('storage/' . $selectedWo->bukti_bayar_wo) }}" target="_blank">
+                            <img src="{{ asset('storage/' . $selectedWo->bukti_bayar_wo) }}"
+                                 class="max-h-48 rounded border border-amber-300 object-contain cursor-zoom-in hover:opacity-90">
+                        </a>
+
+                        @if($selectedWo->cs_status === 'Verified')
+                        <div class="mt-2 flex items-center gap-2 text-[11px] text-blue-700 bg-blue-50 rounded p-2">
+                            <span class="font-bold">✔ CS Terverifikasi</span>
+                            <span class="text-gray-500">oleh {{ $selectedWo->cs_by }} · {{ $selectedWo->cs_at?->format('d/m/Y H:i') }}</span>
+                        </div>
+                        @elseif($selectedWo->cs_status === 'Rejected')
+                        <div class="mt-2 text-[11px] text-red-700 bg-red-50 rounded p-2">
+                            <span class="font-bold">✖ CS Tolak:</span> {{ $selectedWo->cs_notes }}
+                        </div>
+                        @else
+                        {{-- CS belum verifikasi --}}
+                        <div class="mt-3">
+                            <p class="text-[11px] font-semibold text-gray-700 mb-1">Verifikasi Bukti Bayar (CS)</p>
+                            <p class="text-[10px] text-gray-500 mb-2">Pastikan bukti transfer valid sebelum diteruskan ke FA untuk konfirmasi uang masuk.</p>
+                            <label class="text-[11px] text-gray-600 block mb-1">Catatan (wajib jika ditolak)</label>
+                            <textarea wire:model="finNotes" rows="2"
+                                      class="w-full border border-gray-300 rounded px-2 py-1 text-[11px] resize-none focus:outline-none focus:border-blue-400"
+                                      placeholder="Catatan verifikasi..."></textarea>
+                            @error('finNotes') <p class="text-red-500 text-[10px]">{{ $message }}</p> @enderror
+                            <div class="flex gap-2 mt-2">
+                                <button wire:click="csVerifikasi"
+                                        class="px-4 py-1 text-[11px] font-bold rounded bg-blue-600 hover:bg-blue-700 text-white">
+                                    ✔ Verifikasi (teruskan ke FA)
+                                </button>
+                                <button wire:click="csTolak"
+                                        class="px-4 py-1 text-[11px] font-bold rounded bg-red-600 hover:bg-red-700 text-white">
+                                    ✖ Tolak Bukti
+                                </button>
+                            </div>
+                        </div>
+                        @endif
+
+                        @if($selectedWo->fin_status === 'Approved')
+                        <div class="mt-2 text-[11px] text-green-700 font-semibold bg-green-50 rounded p-2">
+                            ✔ FA Approved — LUNAS oleh {{ $selectedWo->fin_by }} · {{ $selectedWo->fin_at?->format('d/m/Y H:i') }}
+                        </div>
+                        @endif
+                    </div>
+                    @else
+                    <p class="text-[11px] text-gray-400 italic">Tenant belum mengupload bukti pembayaran.</p>
+                    @endif
+                    @endif
+                </div>
             </div>
         </div>
         </div>

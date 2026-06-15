@@ -14,8 +14,11 @@ class WorkOrder extends Model
         'balas_request', 'balas_by', 'balas_at', 'foto_pengecekan',
         'work_started', 'work_closed', 'action_by', 'action_taken', 'foto_close',
         'notified_l1_at', 'notified_l2_at',
+        'notified_work_l1_at', 'notified_work_l2_at',
         'is_berbayar', 'biaya_wo', 'keterangan_biaya',
         'fin_by', 'fin_at', 'fin_status', 'fin_notes',
+        'bukti_bayar_wo', 'tgl_bukti_bayar_wo',
+        'cs_status', 'cs_by', 'cs_at', 'cs_notes',
     ];
 
     protected function casts(): array
@@ -27,11 +30,15 @@ class WorkOrder extends Model
             'balas_at'        => 'datetime',
             'work_started'    => 'datetime',
             'work_closed'     => 'datetime',
-            'notified_l1_at'  => 'datetime',
-            'notified_l2_at'  => 'datetime',
-            'is_berbayar'     => 'boolean',
-            'biaya_wo'        => 'decimal:2',
-            'fin_at'          => 'datetime',
+            'notified_l1_at'       => 'datetime',
+            'notified_l2_at'       => 'datetime',
+            'notified_work_l1_at'  => 'datetime',
+            'notified_work_l2_at'  => 'datetime',
+            'is_berbayar'        => 'boolean',
+            'biaya_wo'           => 'decimal:2',
+            'fin_at'             => 'datetime',
+            'tgl_bukti_bayar_wo' => 'datetime',
+            'cs_at'              => 'datetime',
         ];
     }
 
@@ -47,7 +54,7 @@ class WorkOrder extends Model
     {
         return [
             'CIVIL', 'ELECTRICAL', 'PLUMBING', 'MECHANICAL',
-            'WATER / ELECTRICITY', 'PERGANTIAN ACCESS CARD',
+            'LIFT', 'WATER / ELECTRICITY', 'PERGANTIAN ACCESS CARD',
             'GENERAL', 'PAINTING', 'HVAC',
         ];
     }
@@ -59,6 +66,7 @@ class WorkOrder extends Model
             'ELECTRICAL'             => 'ENG',
             'PLUMBING'               => 'ENG',
             'MECHANICAL'             => 'ENG',
+            'LIFT'                   => 'ENG',
             'WATER / ELECTRICITY'    => 'ENG',
             'PERGANTIAN ACCESS CARD' => 'ENG',
             'GENERAL'                => 'ENG',
