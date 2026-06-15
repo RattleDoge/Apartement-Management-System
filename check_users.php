@@ -1,0 +1,1 @@
+﻿<?php require "vendor/autoload.php"; $app = require "bootstrap/app.php"; $app->make("Illuminate\Contracts\Http\Kernel")->handle(Illuminate\Http\Request::capture()); $users = App\Models\User::select("id","name","email","role")->get(); foreach($users as $u) { echo $u->id . " | " . $u->role . " | " . $u->email . "\n"; }

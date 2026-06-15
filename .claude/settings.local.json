@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(New-Item -ItemType Directory -Force \"C:\\\\laragon\\\\www\\\\Tugas Akhir\\\\resources\\\\views\\\\admin\\\\users\")",
+      "PowerShell(New-Item -ItemType Directory -Force \"C:\\\\laragon\\\\www\\\\Tugas Akhir\\\\resources\\\\views\\\\admin\")",
+      "PowerShell(New-Item -ItemType Directory -Force \"C:\\\\laragon\\\\www\\\\Tugas Akhir\\\\resources\\\\views\\\\karyawan\")",
+      "PowerShell($env:PATH = \"C:\\\\laragon\\\\bin\\\\php\\\\php8.4.1;$env:PATH\"; cd \"c:\\\\laragon\\\\www\\\\Tugas Akhir\"; php artisan migrate --force 2>&1)",
+      "PowerShell([System.IO.Directory]::GetDirectories\\(\"C:\\\\laragon\"\\))",
+      "PowerShell([System.IO.Directory]::GetDirectories\\(\"C:\\\\laragon\\\\bin\"\\))",
+      "PowerShell([System.IO.Directory]::GetDirectories\\(\"C:\\\\laragon\\\\bin\\\\php\"\\))",
+      "PowerShell($env:PATH = \"C:\\\\laragon\\\\bin\\\\php\\\\php-8.3.30-Win32-vs16-x64;$env:PATH\"; Set-Location \"c:\\\\laragon\\\\www\\\\Tugas Akhir\"; php artisan migrate --force)",
+      "PowerShell($env:PATH = \"C:\\\\laragon\\\\bin\\\\php\\\\php-8.3.30-Win32-vs16-x64;$env:PATH\"; Set-Location \"c:\\\\laragon\\\\www\\\\Tugas Akhir\"; php artisan db:seed --class=TenantRequestSeeder)",
+      "PowerShell([System.IO.Directory]::GetDirectories\\(\"C:\\\\laragon\\\\bin\\\\nodejs\"\\))",
+      "PowerShell($env:PATH = \"C:\\\\laragon\\\\bin\\\\nodejs\\\\node-v22;C:\\\\laragon\\\\bin\\\\php\\\\php-8.3.30-Win32-vs16-x64;$env:PATH\"; Set-Location \"c:\\\\laragon\\\\www\\\\Tugas Akhir\"; npm.cmd run build 2>&1)",
+      "PowerShell($env:PATH = \"C:\\\\laragon\\\\bin\\\\php\\\\php-8.3.30-Win32-vs16-x64;$env:PATH\"; Set-Location \"c:\\\\laragon\\\\www\\\\Tugas Akhir\"; php artisan tinker --execute=\"echo \\\\App\\\\Models\\\\TenantRequest::count\\(\\) . ' tenant requests. Belum selesai: ' . \\\\App\\\\Models\\\\TenantRequest::where\\('is_selesai', false\\)->count\\(\\);\")",
+      "PowerShell($env:PATH = \"C:\\\\laragon\\\\bin\\\\php\\\\php-8.3.30-Win32-vs16-x64;$env:PATH\"; Set-Location \"c:\\\\laragon\\\\www\\\\Tugas Akhir\"; php artisan migrate --force; php artisan storage:link)",
+      "PowerShell($env:PATH = \"C:\\\\laragon\\\\bin\\\\nodejs\\\\node-v22;C:\\\\laragon\\\\bin\\\\php\\\\php-8.3.30-Win32-vs16-x64;$env:PATH\"; Set-Location \"c:\\\\laragon\\\\www\\\\Tugas Akhir\"; npm.cmd run build 2>&1 | Select-String -Pattern \"built|error\" -CaseSensitive:$false)"
+    ]
+  }
+}
