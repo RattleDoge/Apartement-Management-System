@@ -43,6 +43,24 @@ Sistem manajemen apartemen berbasis web yang dibangun sebagai Tugas Akhir (Skrip
 ### 1. Sistem Manajemen Work Order
 Input WO (Internal/External dengan counter terpisah), assign staff, tracking status FIFO, notifikasi eskalasi otomatis, cetak WO, ekspor CSV.
 
+**WO Berbayar** — WO yang memiliki item & service berbayar mengikuti alur persetujuan:
+1. Staff ENG/CS tambahkan item (harga > 0) → WO otomatis menjadi berbayar
+2. Tenant melihat rincian tagihan di portal dan upload bukti bayar
+3. CS memverifikasi bukti bayar (`cs_status = Verified`)
+4. Finance mengkonfirmasi uang masuk di rekening → status berubah **LUNAS** (`fin_status = Approved`)
+5. Print WO menampilkan stempel **LUNAS** jika sudah disetujui Finance
+
+**Item & Service tersedia:**
+- Biaya Material, Biaya Jasa, Biaya Lembur, dll.
+- Access Card — Rp 100.000/pcs
+- Deposit Access Card Master — Rp 300.000/pcs
+
+**Eskalasi otomatis** (dijalankan via Windows Task Scheduler setiap menit):
+| Kondisi | L1 (Supervisor/Chief) | L2 (Manager/GM) |
+|---|---|---|
+| WO belum ada assign staff | T + 15 menit | T + 30 menit |
+| WO sudah assign tapi belum dikerjakan (`work_started` null) | T + 60 menit | T + 120 menit |
+
 ### 2. Sistem Tenant Request & Complain
 Tenant ajukan komplain via portal, CS kelola dan update status, counter complain real-time di header karyawan.
 
@@ -80,7 +98,7 @@ Laporan bulanan (akses AM/CS/FA) dengan split WO Internal vs External, statistik
 - Kontak Darurat — floating button emergency (RS, polisi, PLN, dll.)
 
 ### Portal CS / AM
-- Work Order — manajemen WO (floating modal form, FIFO queue); WO Close otomatis menyembunyikan dari daftar aktif & menutup Tenant Request terkait
+- Work Order — manajemen WO (floating modal form, FIFO queue); WO Close otomatis menyembunyikan dari daftar aktif & menutup Tenant Request terkait; CS memverifikasi bukti bayar WO berbayar sebelum diteruskan ke Finance
 - Facility Reservation — manajemen reservasi fasilitas
 - In-Out Permit — manajemen izin keluar-masuk
 - Tenant Request — kelola komplain tenant; auto-close saat WO terkait di-close
@@ -92,8 +110,8 @@ Laporan bulanan (akses AM/CS/FA) dengan split WO Internal vs External, statistik
 - Banner / Pengumuman — upload & kelola banner carousel untuk halaman beranda tenant (toggle aktif/nonaktif)
 
 ### Portal Finance
-- Invoice — upload massal CSV, Statement of Account
-- WO Approval — approval Work Order berbayar
+- Invoice — upload massal CSV, Statement of Account; kartu ringkasan hanya menampilkan **Belum Lunas** dan **Sudah Lunas**
+- WO Approval — approval akhir Work Order berbayar (setelah CS verifikasi → FA konfirmasi uang masuk → LUNAS)
 - Permit Approval — approval In-Out Permit
 - Facility Approval — konfirmasi pembayaran reservasi fasilitas
 
@@ -133,6 +151,25 @@ composer install
 npm install
 php artisan migrate
 npm run dev
+```
+
+### Setup Scheduler (Notifikasi Eskalasi WO)
+
+Eskalasi WO membutuhkan Laravel Scheduler berjalan setiap menit. Di Windows/Laragon, daftarkan via **Windows Task Scheduler** (jalankan sekali saja):
+
+```powershell
+$action  = New-ScheduledTaskAction -Execute "C:\laragon\www\TA\run-scheduler.bat"
+$trigger = New-ScheduledTaskTrigger -RepetitionInterval (New-TimeSpan -Minutes 1) -Once -At (Get-Date)
+$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew
+Register-ScheduledTask -TaskName "Laravel Scheduler - AMS TA" -Action $action -Trigger $trigger -Settings $settings -Force
+```
+
+File `run-scheduler.bat` sudah tersedia di root project. Log scheduler tersimpan di `storage/logs/scheduler.log`.
+
+Untuk test eskalasi manual:
+```bash
+php artisan wo:check-escalation --dry-run   # preview saja
+php artisan wo:check-escalation             # kirim notifikasi sungguhan
 ```
 
 Buat akun karyawan via tinker:
