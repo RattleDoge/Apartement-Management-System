@@ -22,22 +22,13 @@ class WoEscalationNotification extends Notification
 
     public function toMail(object $notifiable): MailMessage
     {
-        $levelLabel = $this->level === 1
-            ? 'Supervisor / Chief'
-            : 'Manager / General Manager';
-
-        $subject = $this->level === 1
-            ? "⚠️ WO Belum Ditangani ({$this->elapsedMinutes} menit): {$this->workOrder->no_wo}"
-            : "🚨 ESKALASI WO Belum Ditangani ({$this->elapsedMinutes} menit): {$this->workOrder->no_wo}";
+        $levelLabel = $this->level === 1 ? 'Supervisor / Chief' : 'Manager / General Manager';
+        [$subject, $body] = $this->buildMessages();
 
         return (new MailMessage)
             ->subject($subject)
             ->greeting("Yth. {$notifiable->name},")
-            ->line(
-                $this->level === 1
-                    ? "Work Order berikut belum ada teknisi yang ditugaskan selama **{$this->elapsedMinutes} menit** (batas respon 15 menit)."
-                    : "⚠️ **ESKALASI**: Work Order berikut masih belum ditangani selama **{$this->elapsedMinutes} menit**. Mohon segera ditindaklanjuti."
-            )
+            ->line($body)
             ->line('')
             ->line("**No WO :** {$this->workOrder->no_wo}")
             ->line("**No Complain :** {$this->workOrder->no_complain}")
@@ -45,6 +36,7 @@ class WoEscalationNotification extends Notification
             ->line("**Nama :** {$this->workOrder->name}")
             ->line("**Deskripsi :** {$this->workOrder->descs}")
             ->line("**Tanggal Masuk :** {$this->workOrder->tanggal->format('d/m/Y H:i:s')}")
+            ->line("**Assign :** " . ($this->workOrder->assign_staff ?? '-'))
             ->line("**Status :** {$this->workOrder->status_comp}")
             ->action('Buka Work Order', url('/karyawan/cs/work-order'))
             ->line("Notifikasi ini dikirim secara otomatis kepada {$levelLabel}.")
@@ -53,6 +45,8 @@ class WoEscalationNotification extends Notification
 
     public function toDatabase(object $notifiable): array
     {
+        [$subject, , $shortMsg] = $this->buildMessages();
+
         return [
             'wo_id'    => $this->workOrder->id,
             'no_wo'    => $this->workOrder->no_wo,
@@ -60,11 +54,41 @@ class WoEscalationNotification extends Notification
             'name'     => $this->workOrder->name,
             'descs'    => $this->workOrder->descs,
             'level'    => $this->level,
+            'context'  => $this->context,
             'elapsed'  => $this->elapsedMinutes,
-            'message'  => $this->level === 1
-                ? "WO {$this->workOrder->no_wo} (Lot {$this->workOrder->lot_no}) belum ada teknisi — {$this->elapsedMinutes} menit"
-                : "🚨 ESKALASI: WO {$this->workOrder->no_wo} masih belum ditangani — {$this->elapsedMinutes} menit",
+            'message'  => $shortMsg,
         ];
+    }
+
+    /** Returns [subject, body, shortMessage] */
+    private function buildMessages(): array
+    {
+        $wo = $this->workOrder->no_wo;
+        $lot = $this->workOrder->lot_no;
+        $min = $this->elapsedMinutes;
+        $icon = $this->level === 1 ? '⚠️' : '🚨';
+
+        if ($this->context === 'not_started') {
+            // WO sudah di-assign tapi teknisi belum mulai kerja
+            $subject  = "{$icon} WO Belum Dikerjakan ({$min} menit): {$wo}";
+            $body     = $this->level === 1
+                ? "Work Order berikut sudah di-assign ke **{$this->workOrder->assign_staff}** namun belum mulai dikerjakan selama **{$min} menit**."
+                : "🚨 **ESKALASI**: WO {$wo} sudah di-assign ke **{$this->workOrder->assign_staff}** namun belum dikerjakan selama **{$min} menit**. Mohon segera ditindaklanjuti.";
+            $shortMsg = $this->level === 1
+                ? "{$icon} WO {$wo} (Lot {$lot}) ditugaskan ke {$this->workOrder->assign_staff} tapi belum dikerjakan — {$min} menit"
+                : "🚨 ESKALASI: WO {$wo} (Lot {$lot}) masih belum dikerjakan — {$min} menit";
+        } else {
+            // WO belum ada assign staff sama sekali
+            $subject  = "{$icon} WO Belum Ditangani ({$min} menit): {$wo}";
+            $body     = $this->level === 1
+                ? "Work Order berikut belum ada teknisi yang ditugaskan selama **{$min} menit** (batas respon 15 menit)."
+                : "🚨 **ESKALASI**: WO {$wo} masih belum ada teknisi yang ditugaskan selama **{$min} menit**. Mohon segera ditindaklanjuti.";
+            $shortMsg = $this->level === 1
+                ? "{$icon} WO {$wo} (Lot {$lot}) belum ada teknisi — {$min} menit"
+                : "🚨 ESKALASI: WO {$wo} (Lot {$lot}) masih belum ditangani — {$min} menit";
+        }
+
+        return [$subject, $body, $shortMsg];
     }
 
     public function toArray(object $notifiable): array
