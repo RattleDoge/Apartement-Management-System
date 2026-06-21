@@ -9,3 +9,4 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('wo:check-escalation')->everyMinute();
+Schedule::command('facility:check-overdue')->everyMinute();

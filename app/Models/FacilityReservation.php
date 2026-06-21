@@ -22,6 +22,7 @@ class FacilityReservation extends Model
         'input_by',
         'rr_index', 'rr_officer',
         'qr_token',
+        'notified_cs_at', 'notified_am_at',
     ];
 
     public function generateQrToken(): void
@@ -43,6 +44,8 @@ class FacilityReservation extends Model
             'eng_at'            => 'datetime',
             'sec_open_at'       => 'datetime',
             'sec_close_at'      => 'datetime',
+            'notified_cs_at'    => 'datetime',
+            'notified_am_at'    => 'datetime',
         ];
     }
 
